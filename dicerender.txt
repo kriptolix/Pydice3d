@@ -1,0 +1,251 @@
+🎨 Visão geral da lib
+
+Nome hipotético: dicerender
+
+Responsabilidades
+gerar geometria procedural dos dados
+aplicar materiais realistas
+renderizar com iluminação consistente
+desenhar números com qualidade
+integrar com a simulação (transformações externas)
+🧱 Arquitetura
+dicerender/
+ ├── mesh/
+ ├── materials/
+ ├── textures/
+ ├── shaders/
+ ├── renderer/
+ └── dice_visual/
+🚀 ETAPA 1 — Renderer mínimo (OpenGL)
+Objetivo
+
+Desenhar um mesh simples na tela
+
+Implementar
+contexto OpenGL
+shader básico:
+vertex: transformação MVP
+fragment: cor fixa
+classe Mesh
+VBO + EBO
+✅ Teste
+renderizar um cubo simples
+
+✔ Esperado:
+
+cubo visível
+sem iluminação ainda
+🔺 ETAPA 2 — Geometria procedural (d6)
+Objetivo
+
+Gerar dado via código
+
+Implementar
+função create_d6()
+vértices
+índices
+normais por face
+⚠️ Importante
+não compartilhar vértices entre faces
+(cada face precisa de normal própria → shading correto)
+✅ Teste
+
+✔ Esperado:
+
+cubo com faces bem definidas (arestas “duras”)
+💡 ETAPA 3 — Iluminação básica (Phong)
+Objetivo
+
+Dar volume realista
+
+Implementar no shader:
+normal
+light direction
+cálculo:
+diffuse
+specular
+✅ Teste
+
+✔ Esperado:
+
+brilho nas faces
+sensação de 3D real
+🧵 ETAPA 4 — UV mapping por face
+Objetivo
+
+Preparar para números
+
+Implementar
+cada face com UV 0–1 independente
+✅ Teste
+aplicar textura checkerboard
+
+✔ Esperado:
+
+textura alinhada em cada face
+🔢 ETAPA 5 — Sistema de texturas para números
+
+Agora começa o realismo visual.
+
+Abordagem escolhida: textura gerada dinamicamente
+Implementar
+usar PIL (ou similar)
+gerar imagem por face:
+fundo
+número centralizado
+leve imperfeição (anti-alias, blur leve)
+Alternativa avançada (depois):
+atlas único
+✅ Teste
+
+✔ Esperado:
+
+números claros e centralizados
+legíveis de qualquer ângulo
+🧊 ETAPA 6 — Material realista (PBR simplificado)
+Objetivo
+
+Sair do visual “plástico fake”
+
+Implementar:
+parâmetros:
+roughness
+metallic (baixo)
+base color
+shader:
+especular baseado em roughness
+✅ Teste
+
+✔ Esperado:
+
+dado parece:
+plástico / resina / acrílico
+highlights suaves
+🌍 ETAPA 7 — Iluminação de ambiente
+Objetivo
+
+Parar de parecer “objeto flutuando no vazio”
+
+Implementar
+light principal (direcional)
+ambient light
+opcional: HDRI simples
+✅ Teste
+
+✔ Esperado:
+
+sombras suaves
+melhor percepção de volume
+🪵 ETAPA 8 — Sombra (shadow mapping simples)
+Objetivo
+
+Aumentar MUITO o realismo
+
+Implementar
+depth map
+render pass de sombra
+aplicar no shader
+✅ Teste
+
+✔ Esperado:
+
+dado projeta sombra no chão
+ancoragem visual forte
+🎲 ETAPA 9 — Suporte a múltiplos dados
+Implementar
+instancing ou múltiplos draw calls
+lista de DiceVisual
+Integração com simulação:
+
+Cada dado recebe:
+
+posição
+rotação
+✅ Teste
+
+✔ Esperado:
+
+vários dados na tela
+cada um com transformação independente
+🔺 ETAPA 10 — Outros tipos de dados
+Implementar:
+d4 (tetraedro)
+d8 (octaedro)
+d12 (dodecaedro)
+d20 (icosaedro)
+d10 (pentagonal trapezohedron)
+⚠️ Aqui está a parte crítica
+
+Para cada face você precisa:
+
+normal correta
+centro da face
+orientação do número
+✅ Teste
+
+✔ Esperado:
+
+todos os dados renderizam corretamente
+sem distorção de textura
+🎯 ETAPA 11 — Alinhamento número ↔ face
+Objetivo
+
+Garantir consistência com a simulação
+
+Implementar
+cada face tem:
+valor
+índice
+transform local
+✅ Teste
+
+✔ Esperado:
+
+valor renderizado corresponde à face correta
+✨ ETAPA 12 — Detalhes de realismo
+
+Agora o “polimento final”
+
+Adicionar:
+bevel leve nas arestas
+variação mínima de cor
+imperfeição na textura
+leve noise no normal
+✅ Teste
+
+✔ Esperado:
+
+dado não parece “perfeito demais”
+aparência mais física
+🎥 ETAPA 13 — Motion polish
+Objetivo
+
+combinar com a simulação fake
+
+Implementar:
+motion blur leve (opcional)
+interpolação suave de transformações
+✅ Teste
+
+✔ Esperado:
+
+movimento mais natural
+menos “robótico”
+🔗 Integração final com a outra lib
+
+Interface simples:
+
+dice_visual.set_transform(position, rotation)
+
+Opcional:
+
+dice_visual.set_result(value)
+⚖️ Decisões importantes
+❌ Evitar:
+importar .obj
+depender de ferramentas externas
+geometria arbitrária
+✅ Usar:
+geometria procedural
+shaders controlados
+texturas geradas

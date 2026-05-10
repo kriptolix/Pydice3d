@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<robot name="cubo">
+
+  <link name="base_link">
+
+    <!-- Propriedades físicas -->
+    <inertial>
+      <mass value="1"/>
+      <inertia ixx="0.1666" iyy="0.1666" izz="0.1666"
+               ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+
+    <!-- Visual -->
+    <visual>
+      <geometry>
+        <mesh filename="cubo.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+
+    <!-- Colisão -->
+    <collision>
+      <geometry>
+        <mesh filename="cubo.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+
+  </link>
+
+</robot>

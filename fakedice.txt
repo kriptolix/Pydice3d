@@ -1,0 +1,269 @@
+🧱 Visão geral da lib
+
+Nome hipotético: fakedice
+
+Componentes principais
+Dice → estado de um dado
+DiceType → geometria lógica (faces, valores, orientações alvo)
+Simulation → loop de atualização
+Animator → controla fases (lançamento → movimento → parada)
+ResultMapper → garante o resultado final
+
+🧱 ETAPA 1 (REFINADA) — Estado + rotação + integração com GtkGLArea
+🎯 Objetivo real desta etapa
+
+Separar claramente:
+
+estado do dado (CPU)
+renderização (OpenGL via GtkGLArea)
+
+E garantir que:
+👉 a rotação calculada aparece corretamente na tela
+
+🧠 Arquitetura mínima
+
+Você vai ter 3 partes:
+
+Dice (estado lógico)
+   ↓
+Transform (matriz/quaternion)
+   ↓
+Renderer (GtkGLArea + OpenGL)
+🔄 Fluxo dentro do GTK
+
+No GtkGLArea, você normalmente usa:
+
+realize → inicializa OpenGL
+render → desenha frame
+tick ou timeout → atualiza estado
+🔁 Loop ideal
+tick/update (CPU)
+   ↓
+atualiza rotação do dado
+   ↓
+queue_draw()
+   ↓
+render (GLArea)
+   ↓
+usa rotação atual
+🎲 Estrutura do Dice (ETAPA 1)
+
+Você precisa apenas disso:
+
+rotation (quaternion)
+angular_velocity (vec3)
+⚙️ Atualização (CPU)
+
+No seu loop (tick):
+
+integrar rotação com base na velocidade angular
+
+Nada de OpenGL aqui.
+
+🎨 Renderização (GLArea)
+
+No render:
+
+converter quaternion → matriz 4x4
+montar MVP:
+Model (rotação)
+View
+Projection
+enviar pro shader
+🔺 Ponto crítico no GTK
+
+GTK não tem “game loop” automático.
+
+Você precisa criar um:
+
+Opção 1 — GLArea.add_tick_callback (melhor)
+sincroniza com o frame clock
+animação suave
+
+✅ Teste da ETAPA 1 (adaptado)
+Setup:
+janela GTK4
+GtkGLArea
+cubo simples
+Comportamento:
+rotação contínua
+controlada por angular_velocity
+
+✔ Critérios de sucesso
+rotação suave (sem “pulos”)
+independente do FPS
+eixo de rotação consistente
+
+🌪️ ETAPA 2 — Damping (perda de energia)
+Objetivo
+
+Simular o dado “perdendo força”
+
+Adicionar
+angular_damping (ex: 0.98 por frame)
+
+No update:
+
+angular_velocity *= damping
+✅ Teste
+
+✔ Esperado:
+
+rotação desacelera naturalmente
+eventualmente quase para
+🪂 ETAPA 3 — Movimento linear simples
+Objetivo
+
+Dar sensação de “lançamento”
+
+Adicionar
+velocity (vec3)
+gravity (constante)
+linear_damping
+
+Update:
+
+posição += velocity * dt
+velocity += gravity * dt
+velocity *= damping
+✅ Teste
+
+✔ Esperado:
+
+dado “cai”
+desacelera no ar (fake, mas ok)
+🪵 ETAPA 4 — Colisão fake com chão
+
+Sem solver — só um plano.
+
+Regra simples:
+
+Se position.y < ground:
+
+position.y = ground
+velocity.y *= -bounce
+velocity.x/z *= friction
+adicionar pequeno ruído na rotação
+✅ Teste
+
+✔ Esperado:
+
+dado quica algumas vezes
+nunca atravessa o chão
+comportamento “ok visualmente”
+🎲 ETAPA 5 — Definição de DiceType
+
+Agora entra a parte importante.
+
+DiceType precisa ter:
+lista de faces:
+valor (ex: 1–6)
+orientação alvo (quaternion)
+
+Exemplo (d6):
+
+cada face = rotação onde ela está “para cima”
+✅ Teste
+imprimir todas as orientações
+verificar consistência
+🎯 ETAPA 6 — Resultado pré-definido
+Objetivo
+
+Escolher o resultado ANTES da simulação
+
+Adicionar no Dice:
+
+target_face
+✅ Teste
+criar dado com resultado fixo (ex: sempre 6)
+🧭 ETAPA 7 — Detecção de “quase parado”
+
+Critério:
+
+|velocity| < threshold
+|angular_velocity| < threshold
+✅ Teste
+logar quando entra nesse estado
+🧲 ETAPA 8 — Convergência para resultado
+
+Aqui está o “segredo”
+
+Quando estiver quase parado:
+
+pegar quaternion atual
+pegar quaternion alvo da face
+fazer interpolação:
+rotation = slerp(current, target, factor)
+
+factor pequeno (ex: 0.05 por frame)
+
+✅ Teste
+
+✔ Esperado:
+
+dado lentamente “se ajeita”
+sem snap brusco
+🛑 ETAPA 9 — Snap final
+
+Quando estiver MUITO próximo:
+
+seta rotação exatamente igual ao alvo
+zera velocidades
+✅ Teste
+
+✔ Esperado:
+
+resultado perfeitamente estável
+sem jitter
+🎭 ETAPA 10 — Ruído para realismo
+
+Adicionar pequenas perturbações:
+
+torque aleatório no início
+variação no bounce
+micro rotações durante quique
+✅ Teste
+
+✔ Esperado:
+
+cada rolagem parece única
+mas sempre termina no valor certo
+🎲 ETAPA 11 — Múltiplos dados
+Simulation:
+lista de Dice
+update em todos
+
+Opcional:
+
+colisão fake entre dados:
+distância mínima → empurrão simples
+✅ Teste
+
+✔ Esperado:
+
+dados não se sobrepõem muito
+movimento “convincente”
+🧩 ETAPA 12 — API final da lib
+
+Algo como:
+
+sim = Simulation()
+
+dice = sim.spawn_dice(
+    type="d20",
+    position=(0, 5, 0),
+    result=17
+)
+
+while sim.running:
+    sim.update(dt)
+⚖️ Decisões importantes
+❌ NÃO fazer:
+SAT collision
+solver de constraints
+contato contínuo
+física real tipo PyBullet
+✅ Fazer:
+animação controlada
+heurísticas simples
+interpolação
