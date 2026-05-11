@@ -14,7 +14,7 @@ from gi.repository import Gtk, GLib
 from OpenGL.GL import *
 import numpy as np
 
-from physics import PhysicsWorld, DICE_TARGET_SIZE, TRAY_H
+from physics import PhysicsWorld, DICE_TARGET_SIZE, TRAY_H 
 from dice_reader import read_all_dice
 from shaders import make_program, upload_mesh, load_texture
 from geometrics import expand_obj_with_uv_tangent, build_floor_mesh
@@ -107,7 +107,7 @@ class DiceGLArea(Gtk.GLArea):
 
         positions, uvs, faces = load_obj(obj_path)
         pos_arr    = np.array(positions, dtype=np.float32)
-        dice_scale = compute_dice_scale(pos_arr, DICE_TARGET_SIZE)
+        dice_scale = compute_dice_scale(pos_arr, DICE_TARGET_SIZE, dice_type)
         print(f"[{dice_type}] scale={dice_scale:.4f}")
 
         self.physics.set_dice_scale(dice_scale)
@@ -184,7 +184,7 @@ class DiceGLArea(Gtk.GLArea):
 
         glUniform1i(self._loc("uTexBase"),   0)
         glUniform1i(self._loc("uTexNormal"), 1)
-        glUniform3f(self._loc("uLightPos"), 3.0, 6.0, 5.0)
+        glUniform3f(self._loc("uLightPos"), 10.0, 8.0, 6.0)
         glUniform3f(self._loc("uColor"), *fallback_color)
         glUniform1f(self._loc("uAlpha"), alpha)
 
@@ -193,7 +193,7 @@ class DiceGLArea(Gtk.GLArea):
     # ------------------------------------------------------------------
 
     def _on_render(self, area, context):
-        glClearColor(0.08, 0.08, 0.12, 1.0)
+        glClearColor(0.0, 0.0, 0.0, 0.0)   # totalmente transparente
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         if not self.prog_pbr:
@@ -206,7 +206,7 @@ class DiceGLArea(Gtk.GLArea):
         view   = mat4_lookat(self.CAM_EYE, self.CAM_CENTER, self.CAM_UP)
 
         # Piso
-        floor_model = np.eye(4, dtype=np.float32)
+        '''floor_model = np.eye(4, dtype=np.float32)
         floor_model[1, 3] = -TRAY_H / 2
         mv  = view @ floor_model
         mvp = proj @ mv
@@ -217,19 +217,18 @@ class DiceGLArea(Gtk.GLArea):
             fallback_color=(0.55, 0.35, 0.18),
         )
         glBindVertexArray(self.floor_vao)
-        glDrawArrays(GL_TRIANGLES, 0, self.floor_vcount)
+        glDrawArrays(GL_TRIANGLES, 0, self.floor_vcount)'''
 
         # Dados
-        dtype = self._current_type
-        if dtype in self._dice_vaos:
-            dice_vao, dice_vcount = self._dice_vaos[dtype]
+        for dtype, (dice_vao, dice_vcount) in self._dice_vaos.items():
             texs = self._dice_textures.get(dtype, {})
             self._bind_textures(
                 texs.get("base"),
                 texs.get("normal"),
                 fallback_color=(0.85, 0.18, 0.12),
             )
-            for pos, orn in self.physics.get_transforms():
+            
+            for pos, orn in self.physics.get_transforms_for_type(dtype):
                 model = mat4_from_bullet(pos, orn)
                 mv    = view @ model
                 mvp   = proj @ mv
@@ -249,16 +248,26 @@ class DiceGLArea(Gtk.GLArea):
 
     def start_simulation(self, n_dice: int = 1, dice_type: str = "d6"):
         self.make_current()
+        
+        '''for dt in ["d4", "d6", "d8", "d10", "d12", "d20"]:
+            self._load_dice_type(dt)
+
+        self.physics.remove_all_dice()
+        for dt in ["d4", "d6", "d8", "d10", "d12", "d20"]:
+            self.physics.add_dice(dt)
+        
+        self._current_type = "d6"
+            '''
+
         self._load_dice_type(dice_type)
         self._current_type = dice_type
 
         self.physics.remove_all_dice()
         for _ in range(n_dice):
             self.physics.add_dice(dice_type)
-
+        
         self.simulating = True
         self.sound.play_roll()
-
         if self.timer_id:
             GLib.source_remove(self.timer_id)
         self.timer_id = GLib.timeout_add(12, self._tick)

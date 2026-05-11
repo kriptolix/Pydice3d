@@ -14,9 +14,11 @@ import math
 import random
 import numpy as np
 
+from collision import _COLLISION_VERTS
+
 # Dimensões da bandeja (em metros do Bullet)
-TRAY_W  = 10.0    # largura X
-TRAY_D  = 10.0    # profundidade Z
+TRAY_W  = 9.0    # largura X
+TRAY_D  = 9.0    # profundidade Z
 TRAY_H  = 0.15   # espessura do piso
 WALL_H  = 4.0    # altura das paredes
 WALL_T  = 0.6    # espessura das paredes
@@ -34,83 +36,6 @@ SIM_SUBSTEPS   = 6
 
 
 # ---------------------------------------------------------------------------
-# Geradores de vértices para shapes de colisão
-# ---------------------------------------------------------------------------
-
-def _icosahedron_verts(r=1.0):
-    """12 vértices de icosaedro regular (D20)."""
-    phi = (1 + math.sqrt(5)) / 2
-    pts = []
-    for s1 in (+1, -1):
-        for s2 in (+1, -1):
-            pts.append([0,        s1 * 1,    s2 * phi])
-            pts.append([s1 * 1,   s2 * phi,  0       ])
-            pts.append([s1 * phi, 0,          s2 * 1  ])
-    norm = math.sqrt(1 + phi * phi)
-    return [[x / norm * r, y / norm * r, z / norm * r] for x, y, z in pts]
-
-
-def _octahedron_verts(r=1.0):
-    """6 vértices de octaedro regular (D8)."""
-    return [
-        [ r,  0,  0], [-r,  0,  0],
-        [ 0,  r,  0], [ 0, -r,  0],
-        [ 0,  0,  r], [ 0,  0, -r],
-    ]
-
-
-def _tetrahedron_verts(r=1.0):
-    """4 vértices de tetraedro regular (D4)."""
-    return [
-        [ 1,  1,  1],
-        [ 1, -1, -1],
-        [-1,  1, -1],
-        [-1, -1,  1],
-    ]  # normalizados para distância sqrt(3) do centro
-
-
-def _dodecahedron_verts(r=1.0):
-    """20 vértices de dodecaedro regular (D12)."""
-    phi = (1 + math.sqrt(5)) / 2
-    pts = []
-    for s1 in (+1, -1):
-        for s2 in (+1, -1):
-            for s3 in (+1, -1):
-                pts.append([s1 * 1,   s2 * 1,   s3 * 1  ])
-    for s1 in (+1, -1):
-        for s2 in (+1, -1):
-            pts.append([0,         s1 * phi,  s2 / phi])
-            pts.append([s1 / phi,  0,          s2 * phi])
-            pts.append([s1 * phi,  s2 / phi,  0        ])
-    norm = math.sqrt(3)
-    return [[x / norm * r, y / norm * r, z / norm * r] for x, y, z in pts]
-
-
-def _trapezoid_d10_verts(r=1.0):
-    """10 vértices do trapezoedro pentagonal (D10)."""
-    verts = []
-    r_top, y_top = 0.85 * r, 0.22 * r
-    for i in range(5):
-        a = 2 * math.pi * i / 5
-        verts.append([r_top * math.cos(a), y_top, r_top * math.sin(a)])
-    r_bot, y_bot = 0.85 * r, -0.22 * r
-    for i in range(5):
-        a = 2 * math.pi * i / 5 + math.pi / 5
-        verts.append([r_bot * math.cos(a), y_bot, r_bot * math.sin(a)])
-    return verts
-
-
-# Mapa: tipo → função que gera vértices do convex hull de colisão
-_COLLISION_VERTS = {
-    "d4":  _tetrahedron_verts,
-    "d8":  _octahedron_verts,
-    "d10": _trapezoid_d10_verts,
-    "d12": _dodecahedron_verts,
-    "d20": _icosahedron_verts,
-}
-
-
-# ---------------------------------------------------------------------------
 # PhysicsWorld
 # ---------------------------------------------------------------------------
 
@@ -122,7 +47,8 @@ class PhysicsWorld:
         pb.setAdditionalSearchPath(pybullet_data.getDataPath(),
                                    physicsClientId=self.client)
 
-        self.dice_ids    = []
+        self.dice_ids  = []
+        self._dice_types: dict[int, str] = {}   # body_id → dice_type
         self._static_ids = []
         self._dice_scale = 1.0
         self._still_frames = 0
@@ -215,7 +141,8 @@ class PhysicsWorld:
             pb.GEOM_MESH,
             vertices=verts,
             physicsClientId=self.client,
-            flags=pb.GEOM_FORCE_CONCAVE_TRIMESH
+            # sem flags: PyBullet usa convex hull automaticamente para GEOM_MESH
+            # dinâmico — mais estável que GEOM_FORCE_CONCAVE_TRIMESH
         )
 
     def add_dice(self, dice_type: str = "d6") -> int:
@@ -233,8 +160,9 @@ class PhysicsWorld:
         orn      = pb.getQuaternionFromAxisAngle(axis, angle,
                                                  physicsClientId=self.client)
 
-        r    = DICE_TARGET_SIZE / 2.0
-        mass = 0.02 * (4 / 3) * math.pi * r ** 3 * 1000   # ~20g para d6 padrão
+        # Massa fixa igual para todos os tipos — evita que dados menores
+        # (D4, D8) acelerem mais que o D6 com o mesmo impulso de lançamento.
+        mass = 0.020   # 20g, equivalente a um dado de resina padrão
 
         body = pb.createMultiBody(
             baseMass=mass,
@@ -244,21 +172,18 @@ class PhysicsWorld:
             physicsClientId=self.client
         )
 
-        pb.changeDynamics(            
+        pb.changeDynamics(
             body, -1,
             restitution=0.4,
-            lateralFriction=1.5,      # alto: converte deslizamento em rolamento
-            rollingFriction=0.01,     # baixo: não freia o rolamento
-            spinningFriction=0.02,    # baixo: não freia o giro
-            linearDamping=0.01,       # era 0.03 — menos resistência ao movimento
-            angularDamping=0.01,      # era 0.04 — deixa o dado girar mais livremente
-            
+            linearDamping=0.01,
+            angularDamping=0.01,
+            rollingFriction=0.01,
+            spinningFriction=0.02,
+            lateralFriction=1.5,
             ccdSweptSphereRadius=DICE_TARGET_SIZE * 0.25,
             physicsClientId=self.client
         )
-
-        dir_x = -1.0 if x > 0 else 1.0   # aponta para o centro
-
+       
         pb.resetBaseVelocity(            
             body,
             linearVelocity=[
@@ -275,6 +200,7 @@ class PhysicsWorld:
         )
 
         self.dice_ids.append(body)
+        self._dice_types[body] = dice_type
         return body
 
     # ------------------------------------------------------------------
@@ -285,6 +211,7 @@ class PhysicsWorld:
         for bid in self.dice_ids:
             pb.removeBody(bid, physicsClientId=self.client)
         self.dice_ids.clear()
+        self._dice_types.clear()
 
     def step(self):
         """Avança a simulação por SIM_SUBSTEPS passos de SIM_TIMESTEP cada."""
@@ -296,6 +223,13 @@ class PhysicsWorld:
         return [
             pb.getBasePositionAndOrientation(bid, physicsClientId=self.client)
             for bid in self.dice_ids
+        ]
+    
+    def get_transforms_for_type(self, dice_type: str) -> list[tuple]:
+        return [
+            pb.getBasePositionAndOrientation(bid, physicsClientId=self.client)
+            for bid in self.dice_ids
+            if self._dice_types.get(bid) == dice_type
         ]
 
     def all_sleeping(self) -> bool:

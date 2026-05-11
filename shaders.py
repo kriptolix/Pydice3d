@@ -10,6 +10,7 @@ Responsabilidades:
 
 from OpenGL.GL import *
 import numpy as np
+from PIL import Image
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@ void main() {
     vec3  V    = normalize(-vFragPos);
     vec3  H    = normalize(L + V);
     float diff = max(dot(N, L), 0.0);
-    float spec = pow(max(dot(N, H), 0.0), 64.0) * 0.4;
+    float spec = pow(max(dot(N, H), 0.0), 24.0) * 0.25;
 
     vec3 col = baseColor * (0.18 + diff * 0.80) + vec3(spec);
     col = pow(col, vec3(1.0 / 2.2));
@@ -224,7 +225,7 @@ def load_texture(path: str, srgb: bool = False) -> int:
     srgb=True  → GL_SRGB8_ALPHA8  (Base Color)
     srgb=False → GL_RGBA8          (Normal, Roughness, etc.)
     """
-    from PIL import Image
+    
 
     img  = Image.open(path).convert("RGBA").transpose(Image.FLIP_TOP_BOTTOM)
     data = np.array(img, dtype=np.uint8)

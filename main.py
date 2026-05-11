@@ -16,6 +16,9 @@ import sys
 from physics import PhysicsWorld
 from glarena import DiceGLArea
 
+from dice_reader import start_calibration
+        
+
 
 DICE_TYPES = ["d4", "d6", "d8", "d10", "d12", "d20"]
 
@@ -77,11 +80,14 @@ class AppWindow(Gtk.ApplicationWindow):
         # Render idle (só piso, sem dados)
         self.gl.timer_id = GLib.timeout_add(32, self._idle_render)
 
+        # start_calibration("d4")   # troque pelo tipo que quer calibrar
+
     def _idle_render(self) -> bool:
         self.gl.queue_render()
         return True
 
-    def _on_roll(self, _btn):
+    def _on_roll(self, _btn):        
+        
         n         = int(self.spin.get_value())
         idx       = self.dice_combo.get_selected()
         dice_type = DICE_TYPES[idx]

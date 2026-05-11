@@ -10,15 +10,24 @@ Lógica por tipo:
   D12  → face virada para CIMA  (normal mais próxima de Y+)
   D20  → face virada para CIMA  (normal mais próxima de Y+)
 
-⚠️  Os mapeamentos assumem que o OBJ está orientado com a face "1" apontando
-    para +Y em repouso (convenção padrão de fabricantes de dados).
+Mapeamento empírico
+-------------------
+Quando FACE_VALUES_<tipo> ainda não está calibrado para o seu OBJ,
+ative o modo de calibração:
+
+    from core.dice_reader import start_calibration
+    start_calibration("d8")   # chame antes de começar a rolar
+
+A cada rolagem o sistema pergunta no terminal qual valor você vê na face
+de cima. Após cobrir todas as faces, imprime o FACE_VALUES correto para
+colar no código e desativa o modo automaticamente.
 """
 
 import math
 import numpy as np
 import pybullet as pb
 
-
+from collision import _trapezoid_d10_verts   # para leitura do D10, que é um caso especial
 # ---------------------------------------------------------------------------
 # Normais de face no espaço LOCAL
 # ---------------------------------------------------------------------------
@@ -117,26 +126,137 @@ _FACE_DATA = {
     "d20": (FACE_NORMALS_D20, FACE_VALUES_D20),
 }
 
+_N_FACES = {"d4": 4, "d6": 6, "d8": 8, "d10": 10, "d12": 12, "d20": 20}
+
 
 # ---------------------------------------------------------------------------
-# Funções internas
+# Funções internas de leitura
 # ---------------------------------------------------------------------------
 
 def _rotate_normal(local_normal: np.ndarray, quaternion) -> np.ndarray:
-    """Aplica a rotação do quaternion Bullet a um vetor local → world-space."""
     rm = pb.getMatrixFromQuaternion(quaternion)
     R  = np.array(rm, dtype=np.float64).reshape(3, 3)
     return R @ local_normal
 
 
 def _read_d10(orn) -> int:
-    """D10: vértice mais alto no referencial do mundo."""
-    from physics import _trapezoid_d10_verts
+    
     local_verts = np.array(_trapezoid_d10_verts(r=1.0), dtype=np.float64)
     R = np.array(pb.getMatrixFromQuaternion(orn), dtype=np.float64).reshape(3, 3)
     world_verts = (R @ local_verts.T).T
     highest_idx = int(np.argmax(world_verts[:, 1]))
     return VERTEX_VALUES_D10.get(highest_idx, 0)
+
+
+def _dominant_face_index(dice_type: str, orn) -> int:
+    """
+    Retorna o índice da face dominante dado o tipo e a orientação.
+    Para o D10 retorna o índice do vértice mais alto.
+    Usado tanto na leitura normal quanto na calibração.
+    """
+    if dice_type == "d10":
+        
+        local_verts = np.array(_trapezoid_d10_verts(r=1.0), dtype=np.float64)
+        R = np.array(pb.getMatrixFromQuaternion(orn), dtype=np.float64).reshape(3, 3)
+        return int(np.argmax((R @ local_verts.T).T[:, 1]))
+
+    face_normals, _ = _FACE_DATA[dice_type]
+    target = np.array([0., -1., 0.]) if dice_type == "d4" \
+             else np.array([0.,  1., 0.])
+    dots = [float(np.dot(_rotate_normal(n, orn), target)) for n in face_normals]
+    return int(np.argmax(dots))
+
+
+# ---------------------------------------------------------------------------
+# Sistema de calibração empírica
+# ---------------------------------------------------------------------------
+
+_calib_type: str | None = None
+_calib_map:  dict       = {}   # face_index → valor confirmado pelo usuário
+
+
+def start_calibration(dice_type: str):
+    """
+    Ativa o modo de calibração para o tipo informado.
+
+    A partir da próxima rolagem, após o dado parar, o terminal perguntará
+    qual número está virado para cima. Quando todas as faces forem cobertas,
+    o mapeamento completo é impresso e o modo é desativado automaticamente.
+
+    Exemplo de uso em main.py antes de começar a rolar:
+
+        from core.dice_reader import start_calibration
+        start_calibration("d8")
+    """
+    global _calib_type, _calib_map
+
+    if dice_type not in _N_FACES:
+        print(f"[calibração] Tipo desconhecido: {dice_type!r}")
+        return
+
+    _calib_type = dice_type
+    _calib_map  = {}
+    n = _N_FACES[dice_type]
+    print(f"\n{'='*60}")
+    print(f"[calibração] Modo ativo para {dice_type.upper()} ({n} faces).")
+    print(f"  Role o dado. Quando parar, olhe qual número está virado")
+    print(f"  para CIMA e digite no terminal.")
+    print(f"  Repita até cobrir todas as {n} faces.")
+    print(f"{'='*60}\n")
+
+
+def _handle_calibration(dice_type: str, body_id: int, physics_client: int) -> int | None:
+    global _calib_type, _calib_map
+
+    _, orn   = pb.getBasePositionAndOrientation(body_id, physicsClientId=physics_client)
+    face_idx = _dominant_face_index(dice_type, orn)
+    n_total  = _N_FACES[dice_type]
+
+    if face_idx in _calib_map:
+        val     = _calib_map[face_idx]
+        covered = len(_calib_map)
+        print(f"[calibração] Face #{face_idx} já registrada → {val}  "
+              f"({covered}/{n_total} cobertas)")
+        return val
+
+    covered   = len(_calib_map)
+    remaining = n_total - covered
+    print(f"\n[calibração] {dice_type.upper()} parou  |  "
+          f"{covered}/{n_total} cobertas, faltam {remaining}")
+    print(f"  Qual número está virado para CIMA? ", end="", flush=True)
+
+    try:
+        val = int(input().strip())
+    except (ValueError, EOFError):
+        print("  Entrada inválida — rolagem ignorada.")
+        return None
+
+    _calib_map[face_idx] = val
+    print(f"  ✓ face #{face_idx} → {val}  ({len(_calib_map)}/{n_total} cobertas)")
+
+    if len(_calib_map) >= n_total:
+        _print_calibration_result(dice_type, n_total)
+        _calib_type = None
+
+    return val
+
+
+def _print_calibration_result(dice_type: str, n_faces: int):
+    values = [_calib_map.get(i, 0) for i in range(n_faces)]
+
+    print(f"\n{'='*60}")
+    print(f"[calibração] {dice_type.upper()} completo! Cole em dice_reader.py:\n")
+
+    if dice_type == "d10":
+        print("VERTEX_VALUES_D10 = {")
+        for i, v in enumerate(values):
+            print(f"    {i}: {v},")
+        print("}")
+    else:
+        varname = f"FACE_VALUES_{dice_type.upper()}"
+        print(f"{varname} = {values}")
+
+    print(f"{'='*60}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -147,18 +267,13 @@ def read_die(dice_type: str, body_id: int, physics_client: int) -> int | None:
     """
     Lê o resultado de um dado parado.
 
-    Parâmetros
-    ----------
-    dice_type     : "d4" | "d6" | "d8" | "d10" | "d12" | "d20"
-    body_id       : ID do corpo rígido no PyBullet
-    physics_client: ID do cliente PyBullet
-
-    Retorna
-    -------
-    Valor inteiro da face ou None se o tipo for desconhecido.
+    Se start_calibration() tiver sido chamado para este tipo, entra em
+    modo interativo no terminal em vez de retornar o valor calculado.
     """
-    _, orn = pb.getBasePositionAndOrientation(body_id,
-                                              physicsClientId=physics_client)
+    if _calib_type == dice_type:
+        return _handle_calibration(dice_type, body_id, physics_client)
+
+    _, orn = pb.getBasePositionAndOrientation(body_id, physicsClientId=physics_client)
 
     if dice_type == "d10":
         return _read_d10(orn)
@@ -169,8 +284,8 @@ def read_die(dice_type: str, body_id: int, physics_client: int) -> int | None:
         return None
 
     face_normals, face_values = data
-    target = np.array([0.0, -1.0, 0.0]) if dice_type == "d4" \
-             else np.array([0.0,  1.0, 0.0])
+    target = np.array([0., -1., 0.]) if dice_type == "d4" \
+             else np.array([0.,  1., 0.])
 
     best_dot, best_value = -2.0, face_values[0]
     for local_n, value in zip(face_normals, face_values):
@@ -189,8 +304,12 @@ def read_all_dice(dice_type: str,
     Retorna lista de valores na mesma ordem de dice_ids.
     """
     results = [read_die(dice_type, bid, physics_client) for bid in dice_ids]
-    total   = sum(r for r in results if r is not None)
-    labels  = " + ".join(str(r) for r in results)
+
+    if _calib_type == dice_type:
+        return results   # durante calibração não imprime resultado final
+
+    total  = sum(r for r in results if r is not None)
+    labels = " + ".join(str(r) for r in results)
 
     if len(results) == 1:
         print(f"[Resultado] {dice_type.upper()}: {results[0]}")

@@ -1,1 +1,132 @@
-https://www.cgtrader.com/designers/jerjr5?utm_source=credit&utm_source=credit_item_page
+pillow
+PyOpenGL
+PyOpenGL-accelerate
+numpy 
+pybullet 
+pygobject
+
+
+A física do d4 não aparece estar funcionando corretamente, verificar se todos os dados, 
+menos o d6 estão entrando em repouso sobre uma face (não um vertice ou  arresta) e que 
+a face esta paralela ao plano (não inclinada em relação a ele) no repouso.
+
+Dados estão entrando em repouso sobrepostos (a textura de um dado dentro da textura 
+de outro). A colisão precisa ser ajustada pra evitar isso.
+
+Ajustar a luz para uma posição mais lateral (não tão vinda de cima).
+
+Pretendo usar o DefaultMaterial_Height.png (arquivo que contem os numeros do dado num
+fundo cinza) como máscara para misturar com textura procedural/material (madeira, metal
+etc.) com uma cor fixa para os números, sem precisar da Base_color.
+
+Fluxo:
+
+Use a textura 256x256 (wood.png ou metal.png) como baseColor.
+Le o Height.png.
+Extraia os números via threshold/contraste.
+Misture (mix/lerp) a cor do material com a cor dos números.
+
+Isso é aplicável? O resultado será satisfatorio?
+
+## Construção de detecção de colisões para tocar sons.
+
+O motor de física detecta:
+
+início da colisão;
+intensidade do impacto;
+tipo de superfície.
+
+Então ele envia um evento para o sistema de áudio.
+
+Fluxo conceitual
+Física → Evento de colisão → Sistema de áudio → Som
+O que detectar
+
+Para cada frame:
+
+1. Detectar colisão nova
+
+Somente quando um contato começa.
+
+Evite tocar som:
+
+enquanto objetos continuam encostados;
+em micro vibrações.
+
+2. Calcular intensidade do impacto
+
+Use:
+
+velocidade relativa;
+impulso da colisão;
+energia transferida.
+
+Exemplo:
+
+impact = relative_velocity.length()
+
+ou idealmente:
+
+impact = collision_impulse
+
+3. Aplicar threshold
+
+Ignorar colisões pequenas:
+
+if impact < 0.3:
+    return
+
+4. Converter impacto em áudio
+
+Mapeie impacto para:
+
+volume;
+pitch;
+escolha de sample.
+
+Exemplo:
+
+volume = clamp(impact / 10.0, 0.1, 1.0)
+
+pitch = random(0.95, 1.05)
+
+Pequena variação de pitch evita repetição artificial.
+
+Separar tipos de som
+Rolling
+
+Som contínuo:
+
+enquanto o dado desliza/gira;
+volume depende da velocidade angular.
+Collision
+
+Som curto:
+
+trigger instantâneo;
+baseado no impacto.
+
+. Pitch randomizado (essencial)
+pitch = random(0.92, 1.08)
+
+Isso sozinho já multiplica a variedade percebida.
+
+2. Volume baseado em impacto
+volume = clamp(impact / 10.0, 0.1, 1.0)
+3. EQ simples (muito importante)
+impactos leves → mais médios/agudos
+impactos fortes → mais graves
+4. Layering (muito eficaz)
+
+Em vez de muitos arquivos:
+
+“hit base” (corpo do som)
+“clack” (transiente curto)
+“rumble” (grave opcional)
+
+Combinados dinamicamente.
+
+5. Micro delays (desalinhamento humano)
+delay = random(0.0, 0.02)
+
+Evita som “robotizado”.

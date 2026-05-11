@@ -5,19 +5,6 @@ Responsabilidades:
   - Mapeamento tipo → caminhos de OBJ e texturas
   - Validação de existência de arquivos
   - Cálculo de escala visual a partir do bounding box do OBJ
-
-CAUSA DO BUG DE TEXTURA
------------------------
-O glarena.py original construía o caminho da textura como:
-
-    p = os.path.join(folder, filename)          # "assets/d6/DefaultMaterial_Base_color.png"
-
-e então verificava os.path.isfile(p).  Esse caminho é relativo ao
-*diretório de trabalho atual* (cwd) do processo, que pode não ser a
-raiz do projeto dependendo de onde você executa `python main.py`.
-
-Solução: resolver os caminhos relativamente ao diretório deste
-arquivo (__file__), que está sempre dentro do pacote do projeto.
 """
 
 import os
@@ -112,13 +99,25 @@ def get_floor_texture_paths() -> dict[str, str | None]:
         "normal": _find(FLOOR_TEX_NORMAL),
     }
 
+VISUAL_SIZE = 0.8 / 39.0
+
+# Multiplicador fino por tipo — ajuste conforme necessário
+_SIZE_MULTIPLIER = {
+    "d4":  2.0,
+    "d6":  1.0,
+    "d8":  1.2,
+    "d10": 1.2,
+    "d12": 0.8,   # reduza até ficar do tamanho certo
+    "d20": 1.0,
+}
 
 def compute_dice_scale(positions_array: np.ndarray,
-                        target_size: float) -> float:
+                       target_size: float,
+                       dice_type: str = "") -> float:    
     """
     Calcula o fator de escala para que o dado ocupe target_size metros.
 
     positions_array: array de posições dos vértices do OBJ (N×3 ou flat).
     """
-    obj_size = float(np.max(positions_array) - np.min(positions_array))
-    return target_size / obj_size if obj_size > 1e-8 else 1.0
+    multiplier = _SIZE_MULTIPLIER.get(dice_type, 1.0)
+    return (target_size / VISUAL_SIZE) * multiplier
