@@ -152,6 +152,7 @@ class DieState:
     final_face: int | None
 
     target_quat: np.ndarray | None
+
 Fase 1 — Rolling
 Objetivo
 
@@ -196,6 +197,7 @@ pos, quat = p.getBasePositionAndOrientation(body_id)
 rot = quat_to_matrix(quat)
 2. Transformar normais locais
 world_normals = FACE_NORMALS @ rot.T
+
 3. Detectar face superior
 
 Escolher a normal com maior componente Z:
@@ -228,6 +230,7 @@ FINAL_LINEAR_THRESHOLD = 0.12
 FINAL_ANGULAR_THRESHOLD = 0.35
 
 REQUIRED_ALIGNMENT = 0.985
+
 Fase 3 — Guided Finalization
 Objetivo
 
@@ -324,7 +327,9 @@ result = resolve_d4_result(ground_idx)
 A física continua correta porque:
 
 o sistema só precisa saber qual face estabilizou no chão
+
 Correção da Fase de Finalização
+
 Objetivo correto
 
 Alinhar:
