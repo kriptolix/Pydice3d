@@ -64,7 +64,8 @@ uniform int       uHasNormal;
 
 uniform vec3  uColor;
 uniform float uAlpha;
-uniform vec3  uLightPos;
+uniform vec3  uLightPos;   // luz principal (lateral direita/frente)
+uniform vec3  uFillPos;    // luz de preenchimento (lateral esquerda/fundo, mais fraca)
 
 out vec4 FragColor;
 
@@ -82,13 +83,23 @@ void main() {
         N = normalize(vTBN[2]);
     }
 
-    vec3  L    = normalize(uLightPos - vFragPos);
-    vec3  V    = normalize(-vFragPos);
-    vec3  H    = normalize(L + V);
-    float diff = max(dot(N, L), 0.0);
-    float spec = pow(max(dot(N, H), 0.0), 24.0) * 0.25;
+    vec3 V = normalize(-vFragPos);
 
-    vec3 col = baseColor * (0.18 + diff * 0.80) + vec3(spec);
+    // Luz principal — contribuição total (difusa + especular)
+    vec3  L1    = normalize(uLightPos - vFragPos);
+    vec3  H1    = normalize(L1 + V);
+    float diff1 = max(dot(N, L1), 0.0);
+    float spec1 = pow(max(dot(N, H1), 0.0), 24.0) * 0.25;
+
+    // Luz de preenchimento — só difusa, intensidade 30% da principal
+    // Elimina sombras totalmente negras e clarifica arestas vs faces
+    vec3  L2    = normalize(uFillPos - vFragPos);
+    float diff2 = max(dot(N, L2), 0.0) * 0.30;
+
+    // Ambiente conservador; difusa principal domina o contraste
+    float ambient = 0.12;
+
+    vec3 col = baseColor * (ambient + diff1 * 0.78 + diff2 * 0.78) + vec3(spec1);
     col = pow(col, vec3(1.0 / 2.2));
     FragColor = vec4(col, uAlpha);
 }

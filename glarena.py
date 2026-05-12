@@ -182,9 +182,14 @@ class DiceGLArea(Gtk.GLArea):
             glBindTexture(GL_TEXTURE_2D, 0)
             glUniform1i(self._loc("uHasNormal"), 0)
 
-        glUniform1i(self._loc("uTexBase"),   0)
+        glUniform1i(self._loc("uTexBase"),    0)
         glUniform1i(self._loc("uTexNormal"), 1)
-        glUniform3f(self._loc("uLightPos"), 10.0, 8.0, 6.0)
+        # Luz principal: lateral direita/frente, baixa — Y=3 vs X=12 → ~14° acima do horizonte.
+        # Realça faces laterais e números sem achatar o volume do dado.
+        glUniform3f(self._loc("uLightPos"),  12.0, 3.0, 8.0)
+        # Luz de preenchimento: lado oposto, mais fraca — evita sombras totalmente negras
+        # e elimina a ambiguidade visual de aresta vs face no D20/D8.
+        glUniform3f(self._loc("uFillPos"),  -10.0, 2.0, -6.0)
         glUniform3f(self._loc("uColor"), *fallback_color)
         glUniform1f(self._loc("uAlpha"), alpha)
 
