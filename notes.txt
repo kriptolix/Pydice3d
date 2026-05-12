@@ -1,3 +1,4 @@
+## Dependencies
 pillow
 PyOpenGL
 PyOpenGL-accelerate
@@ -5,35 +6,6 @@ numpy
 pybullet 
 pygobject
 
-
-A física do d4 não aparece estar funcionando corretamente, verificar se todos os dados, 
-menos o d6 estão entrando em repouso sobre uma face (não um vertice ou  arresta) e que 
-a face esta paralela ao plano (não inclinada em relação a ele) no repouso.
-
-O problema é confirmado: a margem interna do Bullet (~0.04 m) é fixa e não configurável via 
-Python — ela arredonda qualquer poliedro com poucos vértices tornando vértices e arestas 
-pseudo-estáveis. A solução é detectar repouso errado pela altura do CM e aplicar uma pequena 
-perturbação angular para o dado cair na face correta.
-
-d8 e d20 ainda em repouso sobre vertice
-
-Dados estão entrando em repouso sobrepostos (a textura de um dado dentro da textura 
-de outro). A colisão precisa ser ajustada pra evitar isso.
-
-Ajustar a luz para uma posição mais lateral (não tão vinda de cima).
-
-Pretendo usar o DefaultMaterial_Height.png (arquivo que contem os numeros do dado num
-fundo cinza) como máscara para misturar com textura procedural/material (madeira, metal
-etc.) com uma cor fixa para os números, sem precisar da Base_color.
-
-Fluxo:
-
-Use a textura 256x256 (wood.png ou metal.png) como baseColor.
-Le o Height.png.
-Extraia os números via threshold/contraste.
-Misture (mix/lerp) a cor do material com a cor dos números.
-
-Isso é aplicável? O resultado será satisfatorio?
 
 ## Construção de detecção de colisões para tocar sons.
 
@@ -116,7 +88,6 @@ baseado no impacto.
 . Pitch randomizado (essencial)
 pitch = random(0.92, 1.08)
 
-Isso sozinho já multiplica a variedade percebida.
 
 2. Volume baseado em impacto
 volume = clamp(impact / 10.0, 0.1, 1.0)
@@ -137,3 +108,389 @@ Combinados dinamicamente.
 delay = random(0.0, 0.02)
 
 Evita som “robotizado”.
+
+
+### Especificação — Física Guiada para Dados RPG em PyBullet
+
+Objetivo
+
+Eliminar estados finais inválidos:
+
+dado parado sobre aresta/vértice
+face inclinada em relação ao chão
+interpenetração entre dados
+jitter infinito próximo ao repouso
+
+mantendo:
+
+início e meio da rolagem totalmente físicos
+correção apenas na fase final
+resultado visual natural
+Arquitetura Geral
+
+A simulação será dividida em 3 fases:
+
+Fase	Tipo
+Rolling	física pura
+Settling	física + monitoramento
+Guided Finalization	correção assistida
+Estado do Dado
+
+Cada dado possui:
+
+class DieState:
+    body_id: int
+
+    phase: str
+    # "rolling"
+    # "settling"
+    # "finalizing"
+    # "locked"
+
+    stable_frames: int
+
+    final_face: int | None
+
+    target_quat: np.ndarray | None
+Fase 1 — Rolling
+Objetivo
+
+Movimento totalmente físico.
+
+Configuração
+CCD ligado
+sleeping desabilitado
+solver iterations altas
+substeps altos
+Critério de saída
+
+Entrar em settling quando:
+
+linear_speed < LINEAR_SETTLE_THRESHOLD
+AND
+angular_speed < ANGULAR_SETTLE_THRESHOLD
+
+por:
+
+SETTLE_FRAMES_MIN
+
+frames consecutivos.
+
+Valores iniciais sugeridos
+LINEAR_SETTLE_THRESHOLD = 0.35
+ANGULAR_SETTLE_THRESHOLD = 1.2
+SETTLE_FRAMES_MIN = 15
+
+Fase 2 — Settling
+Objetivo
+
+Detectar:
+
+face dominante
+repouso inválido
+penetração
+inclinação residual
+Procedimento por frame
+1. Ler orientação
+pos, quat = p.getBasePositionAndOrientation(body_id)
+rot = quat_to_matrix(quat)
+2. Transformar normais locais
+world_normals = FACE_NORMALS @ rot.T
+3. Detectar face superior
+
+Escolher a normal com maior componente Z:
+
+top_idx = np.argmax(world_normals[:, 2])
+4. Medir estabilidade
+top_alignment = world_normals[top_idx, 2]
+
+Valores:
+
+Alignment	Estado
+> 0.98	excelente
+0.95–0.98	aceitável
+< 0.95	inclinado
+5. Detectar necessidade de correção
+
+Entrar em finalizing quando:
+
+linear_speed < FINAL_LINEAR_THRESHOLD
+AND
+angular_speed < FINAL_ANGULAR_THRESHOLD
+
+e:
+
+top_alignment < REQUIRED_ALIGNMENT
+OR penetration_detected
+OR unstable_contacts
+Valores sugeridos
+FINAL_LINEAR_THRESHOLD = 0.12
+FINAL_ANGULAR_THRESHOLD = 0.35
+
+REQUIRED_ALIGNMENT = 0.985
+Fase 3 — Guided Finalization
+Objetivo
+
+Levar o dado para:
+
+uma face válida
+orientação plana
+sem penetração
+repouso estável
+
+Seleção da Face Final
+Objetivo Correto
+
+Determinar:
+
+qual face deve repousar contra o chão
+qual valor resulta dessa configuração
+
+A face “de cima” não deve ser usada como critério primário.
+
+Novo Conceito: Ground Contact Face
+
+Cada dado deve possuir:
+
+FACE_NORMALS
+FACE_VALUES
+FACE_OPPOSITE
+
+Exemplo d6:
+
+FACE_NORMALS_D6 = np.array([
+    [ 1,  0,  0],
+    [-1,  0,  0],
+    [ 0,  1,  0],
+    [ 0, -1,  0],
+    [ 0,  0,  1],
+    [ 0,  0, -1],
+], dtype=np.float32)
+
+FACE_VALUES_D6 = [5, 3, 4, 2, 6, 1]
+
+FACE_OPPOSITE_D6 = {
+    0:1,
+    1:0,
+    2:3,
+    3:2,
+    4:5,
+    5:4,
+}
+Nova Regra de Seleção
+Transformar normais para world space
+world_normals = FACE_NORMALS @ rot.T
+Detectar face voltada para baixo
+
+Escolher a face com menor componente Z:
+
+ground_idx = np.argmin(world_normals[:, 2])
+
+Porque:
+
+essa é a face mais alinhada ao chão
+funciona para qualquer sólido convexo
+independe da geometria visual
+Critério de Estabilidade
+
+A face de contato é válida quando:
+
+ground_alignment = -world_normals[ground_idx, 2]
+
+Valores:
+
+Alignment	Estado
+> 0.985	contato plano
+0.95–0.985	quase estável
+< 0.95	apoiado em aresta/vértice
+Resultado Final
+d6
+top_idx = FACE_OPPOSITE_D6[ground_idx]
+result = FACE_VALUES_D6[top_idx]
+Generalização
+d4
+
+No d4:
+
+não existe “face oposta”
+o valor é derivado diretamente da face apoiada
+ou
+das arestas superiores
+
+Então:
+
+result = resolve_d4_result(ground_idx)
+
+A física continua correta porque:
+
+o sistema só precisa saber qual face estabilizou no chão
+Correção da Fase de Finalização
+Objetivo correto
+
+Alinhar:
+
+a face de contato
+ao plano do chão
+
+e NÃO:
+
+alinhar a face superior ao eixo Z.
+Construção da Rotação Alvo
+Antes (incorreto)
+align(top_face, +Z)
+Agora (correto)
+align(ground_face, -Z)
+Implementação
+Normal atual da face de contato
+n = world_normals[ground_idx]
+Vetor alvo
+target = np.array([0, 0, -1])
+Quaternion corretivo
+q_correction = rotation_between_vectors(n, target)
+Resultado
+
+Agora:
+
+o dado sempre termina plano
+o solver não precisa resolver equilíbrio impossível
+d4/d10/d12 funcionam corretamente
+a lógica torna-se independente da leitura visual do topo
+Correção da Detecção de Repouso Inválido
+
+Substituir:
+
+top_alignment < REQUIRED_ALIGNMENT
+
+por:
+
+ground_alignment < REQUIRED_ALIGNMENT
+
+Porque o problema físico real é:
+
+contato inválido com o solo
+
+não:
+
+orientação da face superior.
+Regra Universal
+
+O sistema inteiro deve ser orientado por:
+
+“qual face está apoiada estavelmente no chão?”
+
+e não:
+
+“qual face parece estar em cima?”
+
+Essa mudança corrige praticamente todos os casos degenerados em dados RPG.
+
+Método Recomendado
+Torque corretivo
+
+Aplicar torque angular:
+
+torque = axis * angle * FINAL_TORQUE_GAIN
+
+com damping alto.
+
+Configuração temporária
+
+Durante finalizing:
+
+angularDamping = 0.35
+linearDamping = 0.25
+Encerramento
+
+O dado entra em locked quando:
+
+alignment > 0.998
+AND
+linear_speed < 0.03
+AND
+angular_speed < 0.03
+Lock Final
+Procedimento
+1. Zerar velocidades
+p.resetBaseVelocity(
+    body_id,
+    [0,0,0],
+    [0,0,0]
+)
+2. Snap final invisível
+p.resetBasePositionAndOrientation(
+    body_id,
+    corrected_pos,
+    corrected_quat
+)
+
+Agora o snap é invisível porque:
+
+velocidade ≈ zero
+diferença angular mínima
+Correção de Penetração
+Problema
+
+Dados parcialmente dentro de outros.
+
+Detecção
+
+Usar:
+
+p.getClosestPoints()
+
+com:
+
+distance < 0
+Resolução
+
+Aplicar deslocamento pequeno:
+
+separation_dir * penetration_depth * 0.5
+
+em ambos os corpos.
+
+Regras Importantes
+NÃO usar triangle mesh dinâmica
+
+Apenas:
+
+convex hull
+compound shapes
+primitive shapes
+NÃO deixar sleeping automático cedo
+
+Desabilitar durante:
+
+rolling
+settling
+
+Habilitar apenas em:
+
+locked
+NÃO corrigir orientação cedo demais
+
+Correção precoce:
+
+parece “magnética”
+destrói naturalidade
+Parâmetros Recomendados
+SOLVER_ITERATIONS = 80
+SUBSTEPS = 4
+
+FIXED_TIMESTEP = 1/240
+
+FINALIZATION_TIMEOUT = 1.5s
+
+MAX_GUIDED_TORQUE = 0.15
+Resultado Esperado
+
+O sistema final deve:
+
+manter rolagem física convincente
+eliminar repouso inválido
+eliminar arestas/vértices finais
+impedir dados atravessados
+produzir leitura consistente
+parecer totalmente natural visualmente
+
+sem precisar “resolver” todas as limitações do Bullet.

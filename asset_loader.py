@@ -105,9 +105,9 @@ VISUAL_SIZE = 0.8 / 39.0
 _SIZE_MULTIPLIER = {
     "d4":  2.0,
     "d6":  1.0,
-    "d8":  1.2,
-    "d10": 1.2,
-    "d12": 0.8,   # reduza até ficar do tamanho certo
+    "d8":  1.5,
+    "d10": 2.0,
+    "d12": 1.0,   # reduza até ficar do tamanho certo
     "d20": 1.0,
 }
 

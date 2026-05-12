@@ -23,14 +23,6 @@ from asset_loader import (
     get_obj_path, get_texture_paths, get_floor_texture_paths, compute_dice_scale,
 )
 
-try:
-    from sound import SoundManager
-except ImportError:
-    class SoundManager:          # noqa: stub silencioso se módulo ausente
-        def play_roll(self): pass
-        def play_settle(self): pass
-
-
 class DiceGLArea(Gtk.GLArea):
 
     CAM_EYE    = np.array([0.0, 12.0, 0.0],  dtype=np.float32)  # diretamente acima
@@ -56,7 +48,7 @@ class DiceGLArea(Gtk.GLArea):
         self.width, self.height = 600, 500
         self.timer_id   = None
         self.simulating = False
-        self.sound      = SoundManager()
+        
 
         self.connect("realize",   self._on_realize)
         self.connect("unrealize", self._on_unrealize)
@@ -267,7 +259,7 @@ class DiceGLArea(Gtk.GLArea):
             self.physics.add_dice(dice_type)
         
         self.simulating = True
-        self.sound.play_roll()
+        # self.sound.play_roll()
         if self.timer_id:
             GLib.source_remove(self.timer_id)
         self.timer_id = GLib.timeout_add(12, self._tick)
@@ -282,7 +274,7 @@ class DiceGLArea(Gtk.GLArea):
                     self.physics.dice_ids,
                     self.physics.client,
                 )
-                self.sound.play_settle()
+                # self.sound.play_settle()
 
         self.queue_render()
         return True
