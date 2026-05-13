@@ -16,7 +16,7 @@ import sys
 from physics import PhysicsWorld
 from glarena import DiceGLArea
 
-from dice_reader import start_calibration
+# from dice_reader import start_calibration
         
 
 

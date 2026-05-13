@@ -1,258 +1,263 @@
 """
-shaders.py — Shaders GLSL e utilitários de upload para a GPU.
+shaders.py – Código GLSL e Utilitários de Compilação
 
-Responsabilidades:
-  - Código-fonte dos shaders PBR-lite e Phong simples
-  - Compilação e linkagem de programas OpenGL
-  - Upload de geometria (VAO/VBO)
-  - Carregamento de texturas (Pillow → OpenGL)
+Responsabilidade: definir os shaders GLSL e compilá-los em objetos OpenGL.
+Não cria janelas nem contextos — requer contexto OpenGL ativo.
+
+Shaders implementados
+──────────────────────
+DICE_VERT / DICE_FRAG : shader principal para dados com Blinn-Phong
+GROUND_VERT / GROUND_FRAG : shader para o plano do chão (grade simples)
+
+Iluminação — Blinn-Phong
+─────────────────────────
+    Componentes : ambiente + difuso + especular
+    Luz         : direcional (sem posição, sem atenuação)
+    Normal      : transformada pela matriz normal = transpose(inverse(M))
+                  Simplificado: como os dados têm escala uniforme,
+                  usamos diretamente a parte rotação de M (sem distorção).
+
+Uniforms do shader de dados
+────────────────────────────
+    mat4  u_model      : matriz de modelo (posição + rotação do dado)
+    mat4  u_view_proj  : VP = P × V (projeção × view)
+    mat3  u_normal_mat : matriz de normais = transpose(inverse(mat3(u_model)))
+    vec3  u_light_dir  : direção da luz (espaço do mundo, normalizada)
+    vec3  u_light_color: cor da luz
+    vec3  u_ambient    : cor ambiente
+    vec3  u_dice_color : cor base do dado
+    float u_shininess  : expoente especular
+    bool  u_highlight  : destaca o dado (resultado pronto)
 """
 
-from OpenGL.GL import *
-import numpy as np
-from PIL import Image
+from __future__ import annotations
+
+from OpenGL import GL
 
 
-# ---------------------------------------------------------------------------
-# Shader PBR-lite: Base Color + Normal map
-#
-# Atributos:  loc 0 aPos, loc 1 aNormal, loc 2 aUV, loc 3 aTangent
-# Uniforms:   uTexBase, uTexNormal, uHasBase, uHasNormal,
-#             uMVP, uModelView, uNormalMat, uColor, uAlpha, uLightPos
-# ---------------------------------------------------------------------------
+# ────────────────────────────────────────────────────────────────────────────
+# Código GLSL
+# ────────────────────────────────────────────────────────────────────────────
 
-_VERT_PBR = """
+DICE_VERT = """
 #version 330 core
 
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
-layout(location=2) in vec2 aUV;
-layout(location=3) in vec3 aTangent;
+layout(location = 0) in vec3 a_position;
+layout(location = 1) in vec3 a_normal;
 
-uniform mat4 uMVP;
-uniform mat4 uModelView;
-uniform mat3 uNormalMat;
+uniform mat4 u_model;
+uniform mat4 u_view_proj;
+uniform mat3 u_normal_mat;
 
-out vec3 vFragPos;
-out vec2 vUV;
-out mat3 vTBN;
+out vec3 v_normal_world;
+out vec3 v_frag_pos;
 
 void main() {
-    gl_Position = uMVP * vec4(aPos, 1.0);
-    vFragPos    = vec3(uModelView * vec4(aPos, 1.0));
-    vUV         = aUV;
-
-    vec3 N = normalize(uNormalMat * aNormal);
-    vec3 T = normalize(uNormalMat * aTangent);
-    T = normalize(T - dot(T, N) * N);
-    vec3 B = cross(N, T);
-    vTBN = mat3(T, B, N);
+    vec4 world_pos  = u_model * vec4(a_position, 1.0);
+    v_frag_pos      = world_pos.xyz;
+    v_normal_world  = normalize(u_normal_mat * a_normal);
+    gl_Position     = u_view_proj * world_pos;
 }
 """
 
-_FRAG_PBR = """
+DICE_FRAG = """
 #version 330 core
 
-in vec3 vFragPos;
-in vec2 vUV;
-in mat3 vTBN;
+in  vec3 v_normal_world;
+in  vec3 v_frag_pos;
+out vec4 frag_color;
 
-uniform sampler2D uTexBase;
-uniform sampler2D uTexNormal;
-uniform int       uHasBase;
-uniform int       uHasNormal;
-
-uniform vec3  uColor;
-uniform float uAlpha;
-uniform vec3  uLightPos;   // luz principal (lateral direita/frente)
-uniform vec3  uFillPos;    // luz de preenchimento (lateral esquerda/fundo, mais fraca)
-
-out vec4 FragColor;
+uniform vec3  u_light_dir;      // espaço do mundo, normalizado, aponta PARA a luz
+uniform vec3  u_light_color;
+uniform vec3  u_ambient;
+uniform vec3  u_dice_color;
+uniform float u_shininess;
+uniform bool  u_highlight;
+uniform vec3  u_cam_pos;        // posição da câmera (para especular)
 
 void main() {
-    vec3 baseColor = (uHasBase == 1)
-        ? pow(texture(uTexBase, vUV).rgb, vec3(2.2))
-        : uColor;
+    vec3 N = normalize(v_normal_world);
+    vec3 L = normalize(u_light_dir);
+    vec3 V = normalize(u_cam_pos - v_frag_pos);
+    vec3 H = normalize(L + V);  // half-vector (Blinn-Phong)
 
-    vec3 N;
-    if (uHasNormal == 1) {
-        vec3 nMap = texture(uTexNormal, vUV).rgb * 2.0 - 1.0;
-        nMap.y = -nMap.y;   // DirectX → OpenGL
-        N = normalize(vTBN * nMap);
-    } else {
-        N = normalize(vTBN[2]);
-    }
+    // Difuso
+    float diff = max(dot(N, L), 0.0);
 
-    vec3 V = normalize(-vFragPos);
+    // Especular (Blinn-Phong)
+    float spec = 0.0;
+    if (diff > 0.0)
+        spec = pow(max(dot(N, H), 0.0), u_shininess);
 
-    // Luz principal — contribuição total (difusa + especular)
-    vec3  L1    = normalize(uLightPos - vFragPos);
-    vec3  H1    = normalize(L1 + V);
-    float diff1 = max(dot(N, L1), 0.0);
-    float spec1 = pow(max(dot(N, H1), 0.0), 24.0) * 0.25;
+    vec3 base_color = u_highlight
+        ? mix(u_dice_color, vec3(1.0, 0.85, 0.1), 0.5)   // dourado ao parar
+        : u_dice_color;
 
-    // Luz de preenchimento — só difusa, intensidade 30% da principal
-    // Elimina sombras totalmente negras e clarifica arestas vs faces
-    vec3  L2    = normalize(uFillPos - vFragPos);
-    float diff2 = max(dot(N, L2), 0.0) * 0.30;
+    vec3 color = u_ambient * base_color
+               + diff * u_light_color * base_color
+               + spec * u_light_color * 0.5;
 
-    // Ambiente conservador; difusa principal domina o contraste
-    float ambient = 0.12;
-
-    vec3 col = baseColor * (ambient + diff1 * 0.78 + diff2 * 0.78) + vec3(spec1);
-    col = pow(col, vec3(1.0 / 2.2));
-    FragColor = vec4(col, uAlpha);
+    frag_color = vec4(color, 1.0);
 }
 """
 
-# ---------------------------------------------------------------------------
-# Shader Phong simples (piso sem UV)
-# ---------------------------------------------------------------------------
-
-_VERT_SIMPLE = """
+GROUND_VERT = """
 #version 330 core
 
-layout(location=0) in vec3 aPos;
-layout(location=1) in vec3 aNormal;
+layout(location = 0) in vec3 a_position;
 
-uniform mat4 uMVP;
-uniform mat4 uModelView;
-uniform mat3 uNormalMat;
+uniform mat4 u_view_proj;
 
-out vec3 vNormal;
-out vec3 vFragPos;
+out vec2 v_uv;
 
 void main() {
-    gl_Position = uMVP * vec4(aPos, 1.0);
-    vFragPos    = vec3(uModelView * vec4(aPos, 1.0));
-    vNormal     = normalize(uNormalMat * aNormal);
+    v_uv        = a_position.xz * 0.5;
+    gl_Position = u_view_proj * vec4(a_position, 1.0);
 }
 """
 
-_FRAG_SIMPLE = """
+GROUND_FRAG = """
 #version 330 core
 
-in vec3 vNormal;
-in vec3 vFragPos;
+in  vec2 v_uv;
+out vec4 frag_color;
 
-uniform vec3  uColor;
-uniform float uAlpha;
-uniform vec3  uLightPos;
-
-out vec4 FragColor;
+// Grade simples via fwidth anti-aliased
+vec4 grid(vec2 uv, float spacing) {
+    vec2 wrapped = abs(fract(uv / spacing) - 0.5);
+    vec2 dv      = fwidth(uv / spacing);
+    vec2 line    = smoothstep(vec2(0.0), dv * 1.5, wrapped);
+    float val    = 1.0 - min(line.x, line.y);
+    return vec4(0.35, 0.35, 0.35, val * 0.7);
+}
 
 void main() {
-    vec3  L   = normalize(uLightPos - vFragPos);
-    vec3  H   = normalize(L + normalize(-vFragPos));
-    float dif = max(dot(vNormal, L), 0.0);
-    float spc = pow(max(dot(vNormal, H), 0.0), 48.0) * 0.3;
-    vec3  col = uColor * (0.20 + dif * 0.75) + vec3(spc);
-    FragColor = vec4(col, uAlpha);
+    vec4 g1 = grid(v_uv, 1.0);     // grade fina
+    vec4 g2 = grid(v_uv, 5.0);     // grade grossa
+    vec4 base = vec4(0.12, 0.12, 0.14, 1.0);
+    frag_color = mix(base, vec4(0.5, 0.5, 0.5, 1.0), g2.a * 0.5 + g1.a * 0.25);
 }
 """
 
 
-# ---------------------------------------------------------------------------
-# Compilação e link
-# ---------------------------------------------------------------------------
+# ────────────────────────────────────────────────────────────────────────────
+# Compilação e linkagem
+# ────────────────────────────────────────────────────────────────────────────
 
-def _compile_shader(src: str, kind: int) -> int:
-    sh = glCreateShader(kind)
-    glShaderSource(sh, src)
-    glCompileShader(sh)
-    if not glGetShaderiv(sh, GL_COMPILE_STATUS):
-        raise RuntimeError(glGetShaderInfoLog(sh).decode())
-    return sh
+class ShaderError(RuntimeError):
+    """Exceção lançada quando compilação ou linkagem de shader falha."""
 
 
-def _link_program(vs_src: str, fs_src: str) -> int:
-    vs = _compile_shader(vs_src, GL_VERTEX_SHADER)
-    fs = _compile_shader(fs_src, GL_FRAGMENT_SHADER)
-    prog = glCreateProgram()
-    glAttachShader(prog, vs)
-    glAttachShader(prog, fs)
-    glLinkProgram(prog)
-    if not glGetProgramiv(prog, GL_LINK_STATUS):
-        raise RuntimeError(glGetProgramInfoLog(prog).decode())
-    glDeleteShader(vs)
-    glDeleteShader(fs)
-    return prog
-
-
-def make_program() -> int:
-    """Programa PBR-lite (dados com textura)."""
-    return _link_program(_VERT_PBR, _FRAG_PBR)
-
-
-def make_simple_program() -> int:
-    """Programa Phong simples (piso / objetos sem UV)."""
-    return _link_program(_VERT_SIMPLE, _FRAG_SIMPLE)
-
-
-# ---------------------------------------------------------------------------
-# Upload de geometria
-# ---------------------------------------------------------------------------
-
-def upload_mesh(pos_flat, nor_flat, uv_flat=None, tan_flat=None) -> tuple[int, int]:
+def _compile_shader(source: str, shader_type: int) -> int:
     """
-    Cria VAO + VBOs e retorna (vao, vertex_count).
+    Compila um shader GLSL.
 
-    Atributos registrados:
-      0 — posições (obrigatório)
-      1 — normais  (obrigatório)
-      2 — UVs      (opcional)
-      3 — tangentes(opcional)
+    Parâmetros
+    ----------
+    source      : código GLSL como string
+    shader_type : GL_VERTEX_SHADER ou GL_FRAGMENT_SHADER
+
+    Retorna o shader object (int). Lança ShaderError se falhar.
     """
-    vao = glGenVertexArrays(1)
-    glBindVertexArray(vao)
+    shader = GL.glCreateShader(shader_type)
+    GL.glShaderSource(shader, source)
+    GL.glCompileShader(shader)
 
-    def _vbo(data, loc, size):
-        buf = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, buf)
-        glBufferData(GL_ARRAY_BUFFER, data.nbytes, data, GL_STATIC_DRAW)
-        glVertexAttribPointer(loc, size, GL_FLOAT, GL_FALSE, 0, None)
-        glEnableVertexAttribArray(loc)
-        return buf
+    if not GL.glGetShaderiv(shader, GL.GL_COMPILE_STATUS):
+        log = GL.glGetShaderInfoLog(shader).decode()
+        kind = "vertex" if shader_type == GL.GL_VERTEX_SHADER else "fragment"
+        GL.glDeleteShader(shader)
+        raise ShaderError(f"Falha ao compilar shader {kind}:\n{log}")
 
-    _vbo(pos_flat, 0, 3)
-    _vbo(nor_flat, 1, 3)
-    if uv_flat  is not None and len(uv_flat)  > 0:
-        _vbo(uv_flat,  2, 2)
-    if tan_flat is not None and len(tan_flat) > 0:
-        _vbo(tan_flat, 3, 3)
-
-    glBindVertexArray(0)
-    return vao, len(pos_flat) // 3
+    return shader
 
 
-# ---------------------------------------------------------------------------
-# Carregamento de textura
-# ---------------------------------------------------------------------------
-
-def load_texture(path: str, srgb: bool = False) -> int:
+def _link_program(vert: int, frag: int) -> int:
     """
-    Carrega PNG/JPG como textura OpenGL.
+    Linka um programa GLSL a partir de shaders já compilados.
+    Deleta os shaders após a linkagem (boa prática).
 
-    srgb=True  → GL_SRGB8_ALPHA8  (Base Color)
-    srgb=False → GL_RGBA8          (Normal, Roughness, etc.)
+    Retorna o program object (int). Lança ShaderError se falhar.
     """
-    
+    program = GL.glCreateProgram()
+    GL.glAttachShader(program, vert)
+    GL.glAttachShader(program, frag)
+    GL.glLinkProgram(program)
 
-    img  = Image.open(path).convert("RGBA").transpose(Image.FLIP_TOP_BOTTOM)
-    data = np.array(img, dtype=np.uint8)
+    GL.glDeleteShader(vert)
+    GL.glDeleteShader(frag)
 
-    tex = glGenTextures(1)
-    glBindTexture(GL_TEXTURE_2D, tex)
-    glTexImage2D(
-        GL_TEXTURE_2D, 0,
-        GL_SRGB8_ALPHA8 if srgb else GL_RGBA8,
-        img.width, img.height, 0,
-        GL_RGBA, GL_UNSIGNED_BYTE, data
-    )
-    glGenerateMipmap(GL_TEXTURE_2D)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
-    glBindTexture(GL_TEXTURE_2D, 0)
-    return tex
+    if not GL.glGetProgramiv(program, GL.GL_LINK_STATUS):
+        log = GL.glGetProgramInfoLog(program).decode()
+        GL.glDeleteProgram(program)
+        raise ShaderError(f"Falha ao linkar programa:\n{log}")
+
+    return program
+
+
+def build_program(vert_src: str, frag_src: str) -> int:
+    """
+    Compila e linka um programa GLSL completo.
+
+    Parâmetros
+    ----------
+    vert_src : código GLSL do vertex shader
+    frag_src : código GLSL do fragment shader
+
+    Retorna
+    -------
+    int — program object OpenGL
+    """
+    vert = _compile_shader(vert_src, GL.GL_VERTEX_SHADER)
+    frag = _compile_shader(frag_src, GL.GL_FRAGMENT_SHADER)
+    return _link_program(vert, frag)
+
+
+def build_dice_program() -> int:
+    """Compila e linka o programa shader para os dados."""
+    return build_program(DICE_VERT, DICE_FRAG)
+
+
+def build_ground_program() -> int:
+    """Compila e linka o programa shader para o chão."""
+    return build_program(GROUND_VERT, GROUND_FRAG)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Helpers de uniforms
+# ────────────────────────────────────────────────────────────────────────────
+
+def set_uniform_mat4(program: int, name: str, mat: "np.ndarray") -> None:
+    """Envia matriz 4×4 para uniform em column-major (padrão OpenGL/GLSL).
+    NumPy usa row-major, então transpomos antes de enviar com GL_FALSE."""
+    import numpy as np
+    loc = GL.glGetUniformLocation(program, name)
+    if loc != -1:
+        GL.glUniformMatrix4fv(loc, 1, GL.GL_FALSE, mat.T.astype(np.float32))
+
+
+def set_uniform_mat3(program: int, name: str, mat: "np.ndarray") -> None:
+    """Envia matriz 3×3 para uniform em column-major."""
+    import numpy as np
+    loc = GL.glGetUniformLocation(program, name)
+    if loc != -1:
+        GL.glUniformMatrix3fv(loc, 1, GL.GL_FALSE, mat.T.astype(np.float32))
+
+
+def set_uniform_vec3(program: int, name: str, v: "np.ndarray | tuple") -> None:
+    """Envia vec3 para uniform."""
+    loc = GL.glGetUniformLocation(program, name)
+    if loc != -1:
+        GL.glUniform3f(loc, float(v[0]), float(v[1]), float(v[2]))
+
+
+def set_uniform_float(program: int, name: str, val: float) -> None:
+    loc = GL.glGetUniformLocation(program, name)
+    if loc != -1:
+        GL.glUniform1f(loc, float(val))
+
+
+def set_uniform_bool(program: int, name: str, val: bool) -> None:
+    loc = GL.glGetUniformLocation(program, name)
+    if loc != -1:
+        GL.glUniform1i(loc, int(val))
