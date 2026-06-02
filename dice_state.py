@@ -155,13 +155,8 @@ class DiceState:
 
     def update_status(self) -> None:
         """
-        Atualiza ciclo de vida lendo velocidades do PyBullet.
-
-        Critérios idênticos ao original, mas usando velocidades reais (m/s, rad/s)
-        em vez de estimativas Verlet. A componente Y do linear é ignorada pelo
-        mesmo motivo do original: resíduo de contato com o chão.
-
-        Também salva prev_orientation para interpolação do renderer.
+        Atualiza ciclo de vida lendo velocidades do PyBullet.Também 
+        salva prev_orientation para interpolação do renderer.
         """
         if self.status == DiceStatus.RESTING:
             return

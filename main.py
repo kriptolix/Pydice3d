@@ -39,7 +39,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.set_child(root)
 
         # Título
-        title = Gtk.Label(label="🎲  Rolador de Dados — Física Real")
+        title = Gtk.Label(label="Rolador de Dados — Física Real")
         title.add_css_class("title-2")
         root.append(title)
 
@@ -67,7 +67,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.spin.set_numeric(True)
         ctrl.append(self.spin)
 
-        btn = Gtk.Button(label="🎲  Rolar")
+        btn = Gtk.Button(label="Rolar")
         btn.add_css_class("suggested-action")
         btn.connect("clicked", self._on_roll)
         ctrl.append(btn)

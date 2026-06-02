@@ -94,7 +94,7 @@ void main() {
     // Luz de preenchimento — só difusa, intensidade 30% da principal
     // Elimina sombras totalmente negras e clarifica arestas vs faces
     vec3  L2    = normalize(uFillPos - vFragPos);
-    float diff2 = max(dot(N, L2), 0.0) * 0.30;
+    float diff2 = max(dot(N, L2), 0.0) * 0.40;
 
     // Ambiente conservador; difusa principal domina o contraste
     float ambient = 0.12;

@@ -20,8 +20,8 @@ from dice_mesh import get_mesh
 TRAY_W  = 9.0    # largura X
 TRAY_D  = 9.0    # profundidade Z
 TRAY_H  = 0.15   # espessura do piso
-WALL_H  = 4.0    # altura das paredes
-WALL_T  = 0.6    # espessura das paredes
+WALL_H  = 9.0    # altura das paredes
+WALL_T  = 0.15    # espessura das paredes
 
 # Tamanho alvo do dado no mundo físico (em metros).
 DICE_TARGET_SIZE = 0.8
@@ -31,8 +31,8 @@ LAUNCH_VEL_MAX = 5.0
 
 # Timestep fixo da simulação Bullet
 SIM_TIMESTEP   = 1.0 / 240.0
-# Sub-passos por chamada de step (1 tick ≈ 16ms → 4 × 1/240 ≈ 16.7ms)
-SIM_SUBSTEPS   = 6
+# Sub-passos por chamada de step — mais passos reduzem interpenetração entre dados
+SIM_SUBSTEPS   = 10
 
 
 # ---------------------------------------------------------------------------
@@ -120,12 +120,12 @@ class PhysicsWorld:
     # ------------------------------------------------------------------
 
     def _make_collision_shape(self, dice_type: str) -> int:
-        r = DICE_TARGET_SIZE / 2.0
-
+        r = DICE_TARGET_SIZE / 1 # was 2.0, but 1 just reduce overlap
+        d = DICE_TARGET_SIZE / 2.0
         if dice_type == "d6":
             return pb.createCollisionShape(
                 pb.GEOM_BOX,
-                halfExtents=[r, r, r],
+                halfExtents=[d, d, d],
                 physicsClientId=self.client
             )
 
@@ -134,7 +134,7 @@ class PhysicsWorld:
         verts = (mesh.vertices * r).tolist()
         return pb.createCollisionShape(
             pb.GEOM_MESH,
-            vertices=verts,
+            vertices=verts,            
             physicsClientId=self.client,
         )
 
@@ -168,15 +168,22 @@ class PhysicsWorld:
         pb.changeDynamics(
             body, -1,
             restitution=0.4,
-            linearDamping=0.01,
-            angularDamping=0.01,
-            rollingFriction=0.01,
-            spinningFriction=0.02,
+            linearDamping=0.02,
+            angularDamping=0.02,
+            rollingFriction=0.02,
+            spinningFriction=0.03,
             lateralFriction=1.5,
-            ccdSweptSphereRadius=DICE_TARGET_SIZE * 0.25,
+            ccdSweptSphereRadius=DICE_TARGET_SIZE * 0.5,
+            contactProcessingThreshold=0.0,
             physicsClientId=self.client
         )
-       
+
+        pb.setPhysicsEngineParameter(            
+            numSolverIterations=50,
+            physicsClientId=self.client
+        )
+
+            
         pb.resetBaseVelocity(            
             body,
             linearVelocity=[

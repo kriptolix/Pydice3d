@@ -147,7 +147,7 @@ def _ensure_outward_normals(vertices: np.ndarray, faces: list[list[int]]) -> lis
     return corrected
 
 
-def _build_d4() -> DiceMesh:
+def _build_d4_old() -> DiceMesh:
     """
     Tetraedro regular — d4.
     4 vértices, 4 faces triangulares.
@@ -179,7 +179,7 @@ def _build_d4() -> DiceMesh:
         face_values=(1, 2, 3, 4),
     )
 
-def _build_d4_beveled(bevel=0.15)-> DiceMesh:
+def _build_d4(bevel=0.10)-> DiceMesh:
 
     """
     Cria um tetraedro chanfrado.
@@ -218,14 +218,30 @@ def _build_d4_beveled(bevel=0.15)-> DiceMesh:
 
         midpoint *= (1.0 - bevel * 0.5)
 
-        edge_points.append(midpoint)
+        edge_points.append(midpoint)    
 
-    vertices = np.vstack([
+    raw = np.vstack([
         corners,
         np.array(edge_points)
     ])
 
-    return vertices
+    vertices = _project_to_sphere(raw)
+
+    faces = [
+        [1, 3, 2],  # face oposta ao vértice 0 → valor 1
+        [0, 2, 3],  # face oposta ao vértice 1 → valor 2
+        [0, 3, 1],  # face oposta ao vértice 2 → valor 3
+        [0, 1, 2],  # face oposta ao vértice 3 → valor 4
+    ]
+    faces = _ensure_outward_normals(vertices, faces)
+    normals = _compute_normals(vertices, faces)
+    return DiceMesh(
+        dice_type="d4",
+        vertices=vertices,
+        faces=tuple(tuple(f) for f in faces),
+        normals=normals,
+        face_values=(1, 2, 3, 4),
+    )
 
 def _build_d6() -> DiceMesh:
     """
@@ -368,60 +384,42 @@ def _build_d8() -> DiceMesh:
         face_values=(1, 2, 3, 4, 5, 6, 7, 8),
     )
 
-
 def _build_d10() -> DiceMesh:
     """
     Trapezoedro pentagonal — d10.
     12 vértices (2 anéis de 5 + 2 polos), 10 faces kite.
-    Valores: 1–10 (ímpares nas faces upper, pares nas lower — padrão de dado).
+    V=12, F=10, E=20 → Euler=2. Manifold perfeito.
 
-    Geometria: dois anéis intercalados de 36° + polos em y=±1.
-    Os polos são VÉRTICES REAIS das faces (kites), não só âncoras.
-    Não usa _project_to_sphere — normaliza pelo raio máximo para preservar
-    as proporções e garantir que as faces kite sejam visualmente corretas.
-
-    V=12, F=10, E=20 → Euler=2 (esfera topológica, manifold perfeito).
+    Não usa _project_to_sphere — normaliza pelo raio máximo para manter
+    as faces kite geometricamente corretas.
     """
     n = 5
-    h      = 0.4    # altura dos anéis (y = ±h)
-    r      = 0.917  # raio equatorial dos anéis
-    pole_h = 1.0    # altura dos polos (y = ±pole_h)
+    h = 0.4; r = 0.917; ph = 1.0
 
     verts_list = []
-
-    # Anel superior: índices 0..4
     for i in range(n):
         a = 2 * np.pi * i / n
         verts_list.append([r * np.cos(a),  h, r * np.sin(a)])
-
-    # Anel inferior: índices 5..9, intercalado de π/n (36°)
     for i in range(n):
         a = 2 * np.pi * i / n + np.pi / n
         verts_list.append([r * np.cos(a), -h, r * np.sin(a)])
-
-    # Polos: índice 10 (+Y) e 11 (−Y)
-    verts_list.append([0.,  pole_h, 0.])
-    verts_list.append([0., -pole_h, 0.])
+    verts_list.append([0.,  ph, 0.])   # índice 10: polo superior
+    verts_list.append([0., -ph, 0.])   # índice 11: polo inferior
 
     vertices = np.array(verts_list, dtype=float)
+    vertices -= vertices.mean(axis=0)
+    vertices /= np.max(np.linalg.norm(vertices, axis=1))
 
-    # Normaliza pelo raio máximo — preserva proporções e mantém faces kite planas.
-    # NÃO usa _project_to_sphere (deformaria as faces).
-    max_r = np.max(np.linalg.norm(vertices, axis=1))
-    vertices = vertices / max_r
-
-    # 10 faces kite (V=12, E=20, F=10 → Euler=2, manifold perfeito):
-    #   Upper kite i : polo_sup(10) — sup[(i+1)%n] — inf[i] — sup[i]
-    #   Lower kite i : polo_inf(11) — inf[i] — sup[(i+1)%n] — inf[(i+1)%n]
+    # 10 faces kite: upper (polo sup) + lower (polo inf)
+    # Winding CCW visto de fora verificado por _ensure_outward_normals
     faces = []
     for i in range(n):
         j = (i + 1) % n
-        faces.append([10,    j,   n+i,   i])   # upper kite
-        faces.append([11,  n+i,     j, n+j])   # lower kite
+        faces.append([10,   j, n+i,   i])   # upper kite
+        faces.append([11, n+i,   j, n+j])   # lower kite
 
     faces = _ensure_outward_normals(vertices, faces)
     normals = _compute_normals(vertices, faces)
-
     return DiceMesh(
         dice_type="d10",
         vertices=vertices,
@@ -433,186 +431,114 @@ def _build_d10() -> DiceMesh:
 def _build_d12() -> DiceMesh:
     """
     Dodecaedro regular — d12.
-    20 vértices, 12 faces pentagonais.
-    Valores: 1–12.
+    20 vértices, 12 faces pentagonais regulares.
+    V=20, F=12, E=30 → Euler=2.
     """
-    phi = (1 + np.sqrt(5)) / 2  # razão áurea
-    inv_phi = 1 / phi
+    phi = (1.0 + np.sqrt(5.0)) / 2.0
+    inv = 1.0 / phi
 
-    # Vértices do dodecaedro (3 retângulos dourados + permutações)
+    # Vértices do dodecaedro regular (3 classes de simetria)
     raw = []
-    for s1 in (+1, -1):
-        for s2 in (+1, -1):
-            for s3 in (+1, -1):
-                raw.append([s1, s2, s3])                  # 8 vértices do cubo
-    for s1 in (+1, -1):
-        for s2 in (+1, -1):
-            raw.append([0, s1 * phi, s2 * inv_phi])       # retângulo YZ
-            raw.append([s1 * inv_phi, 0, s2 * phi])       # retângulo XZ
-            raw.append([s1 * phi, s2 * inv_phi, 0])       # retângulo XY
+    for sx in (1, -1):
+        for sy in (1, -1):
+            for sz in (1, -1):
+                raw.append([sx, sy, sz])
+    for s1 in (1, -1):
+        for s2 in (1, -1):
+            raw.append([0,   s1 * inv, s2 * phi])
+            raw.append([s1 * inv, s2 * phi,   0])
+            raw.append([s2 * phi,   0, s1 * inv])
 
     vertices = np.array(raw, dtype=float)
-    vertices = _project_to_sphere(vertices)
+    vertices -= vertices.mean(axis=0)
+    vertices /= np.max(np.linalg.norm(vertices, axis=1))
 
-    # 12 faces pentagonais do dodecaedro (orientação CCW de fora)
-    # Índices calculados analiticamente para o dodecaedro canônico
-    faces = [
-        [0, 8, 10, 2, 16],
-        [0, 16, 4, 14, 12],
-        [0, 12, 6, 18, 8],
-        [1, 9, 11, 3, 17],
-        [1, 17, 5, 15, 13],
-        [1, 13, 7, 19, 9],
-        [2, 10, 11, 3, 17],  # ajustado
-        [4, 16, 2, 17, 5],
-        [6, 12, 14, 5, 15],  # ajustado
-        [8, 18, 7, 19, 9],   # ajustado
-        [10, 8, 9, 11, 10],  # placeholder — recalculado abaixo
-        [14, 4, 5, 15, 7],   # placeholder
-    ]
+    # Extrai as 12 faces pentagonais por agrupamento de normais do hull convexo
+    from scipy.spatial import ConvexHull as _CH
+    hull = _CH(vertices)
+    areas, normals_list = [], []
+    for tri in hull.simplices:
+        a, b, c = vertices[tri[0]], vertices[tri[1]], vertices[tri[2]]
+        cross = np.cross(b - a, c - a)
+        nm = np.linalg.norm(cross)
+        if nm < 1e-12: continue
+        areas.append(nm / 2)
+        normals_list.append(cross / nm)
 
-    # Recalcula faces do dodecaedro corretamente por proximidade angular
-    faces = _dodecahedron_faces(vertices)
-    faces = _ensure_outward_normals(vertices, faces)
+    groups = []
+    used = [False] * len(normals_list)
+    for i in range(len(normals_list)):
+        if used[i]: continue
+        g = {'area': areas[i], 'normal': normals_list[i].copy()}
+        used[i] = True
+        for j in range(i + 1, len(normals_list)):
+            if not used[j] and np.dot(normals_list[i], normals_list[j]) > 0.999:
+                g['area'] += areas[j]; used[j] = True
+        groups.append(g)
+    groups.sort(key=lambda g: g['area'], reverse=True)
+    face_normals = [g['normal'] for g in groups[:12]]
+
+    faces = []
+    for n_ in face_normals:
+        projs = vertices @ n_
+        tol = (projs.max() - projs.min()) * 0.001 + 1e-8
+        idx = np.where(projs >= projs.max() - tol)[0]
+        if len(idx) < 3: continue
+        fv = vertices[idx]; center = fv.mean(0)
+        u = fv[0] - center
+        if np.linalg.norm(u) < 1e-10: u = fv[1] - center
+        u /= np.linalg.norm(u)
+        w = np.cross(n_, u)
+        angles = [np.arctan2(np.dot(p - center, w), np.dot(p - center, u)) for p in fv]
+        oi = idx[np.argsort(angles)]
+        if np.dot(np.cross(vertices[oi[1]] - vertices[oi[0]],
+                           vertices[oi[2]] - vertices[oi[0]]), n_) < 0:
+            oi = oi[::-1]
+        faces.append(list(oi))
+
     normals = _compute_normals(vertices, faces)
     return DiceMesh(
         dice_type="d12",
         vertices=vertices,
         faces=tuple(tuple(f) for f in faces),
         normals=normals,
-        face_values=tuple(range(1, 13)),
+        face_values=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
     )
-
-
-def _dodecahedron_faces(vertices: np.ndarray) -> list[list[int]]:
-    """
-    Reconstrói as 12 faces pentagonais do dodecaedro agrupando vértices
-    por proximidade: dois vértices pertencem à mesma face se o ângulo
-    entre eles (a partir do centro) é menor que o ângulo de aresta do dodecaedro.
-
-    O ângulo de aresta do dodecaedro é arccos(−1/√5) ≈ 116.57°.
-    Dois vértices adjacentes no mesmo face têm ângulo ≈ 41.8° entre si.
-    """
-    n = len(vertices)  # 20 vértices
-
-    # Threshold: ângulo de aresta do dodecaedro ≈ cos(41.8°) ≈ 0.7454
-    EDGE_COS = 0.7454
-
-    # Grafo de adjacência: vi ~ vj se cos(ângulo) > EDGE_COS
-    adj: list[list[int]] = [[] for _ in range(n)]
-    for i in range(n):
-        for j in range(i + 1, n):
-            c = float(np.dot(vertices[i], vertices[j]))
-            if c > EDGE_COS:
-                adj[i].append(j)
-                adj[j].append(i)
-
-    # Cada vértice pertence exatamente a 3 faces pentagonais
-    # Encontra pentágonos: cliques de 5 vértices mutuamente adjacentes a 2 passos
-    visited: set[frozenset] = set()
-    faces: list[list[int]] = []
-
-    for start in range(n):
-        neighbors = adj[start]
-        # Para cada par de vizinhos, verifica se existe triângulo (caminho de 2)
-        for i in range(len(neighbors)):
-            for j in range(i + 1, len(neighbors)):
-                vi, vj = neighbors[i], neighbors[j]
-                # vi e vj devem ser vizinhos de 2 passos via outros vértices
-                # Busca pentágono: start → vi → ? → vj → ? → start
-                common_vi = set(adj[vi])
-                common_vj = set(adj[vj])
-                # Intermediário entre vi e vj
-                for mid in common_vi & common_vj:
-                    if mid == start:
-                        continue
-                    face_set = frozenset([start, vi, mid, vj])
-                    if len(face_set) == 4:
-                        # Busca quinto vértice
-                        for fifth in adj[start]:
-                            if fifth in adj[vj] and fifth != vi:
-                                full = frozenset([start, vi, mid, vj, fifth])
-                                if len(full) == 5 and full not in visited:
-                                    visited.add(full)
-                                    ordered = _order_face_ccw(vertices, list(full))
-                                    faces.append(ordered)
-
-    # Fallback: se não encontrou 12 faces, usa faces canônicas hardcoded
-    if len(faces) != 12:
-        faces = _dodecahedron_faces_canonical()
-
-    return faces[:12]
-
-
-def _order_face_ccw(vertices: np.ndarray, indices: list[int]) -> list[int]:
-    """
-    Ordena os índices de uma face em sentido CCW visto de fora da esfera.
-    """
-    verts = vertices[indices]
-    center = verts.mean(axis=0)
-    normal = _normalize(center)
-
-    # Cria base ortonormal no plano da face
-    ref = verts[0] - center
-    ref = ref - np.dot(ref, normal) * normal
-    ref = _normalize(ref)
-    perp = np.cross(normal, ref)
-
-    angles = []
-    for idx, v in zip(indices, verts):
-        d = v - center
-        d = d - np.dot(d, normal) * normal
-        angle = np.arctan2(np.dot(d, perp), np.dot(d, ref))
-        angles.append((angle, idx))
-
-    angles.sort()
-    return [idx for _, idx in angles]
-
-
-def _dodecahedron_faces_canonical() -> list[list[int]]:
-    """Faces canônicas hardcoded do dodecaedro (fallback)."""
-    return [
-        [0, 8, 10, 2, 16],
-        [0, 16, 4, 14, 12],
-        [0, 12, 6, 18, 8],
-        [1, 9, 19, 7, 13],
-        [1, 13, 15, 5, 17],
-        [1, 17, 3, 11, 9],
-        [2, 10, 11, 3, 17],
-        [4, 16, 2, 17, 5],
-        [6, 12, 14, 5, 15],
-        [8, 18, 7, 19, 9],
-        [10, 8, 9, 11, 3],
-        [14, 4, 5, 15, 7],
-    ]
-
 
 def _build_d20() -> DiceMesh:
     """
     Icosaedro regular — d20.
-    12 vértices, 20 faces triangulares.
-    Valores: 1–20.
+    12 vértices, 20 faces triangulares equiláteras.
+    V=12, F=20, E=30 → Euler=2.
     """
-    phi = (1 + np.sqrt(5)) / 2
+    phi = (1.0 + np.sqrt(5.0)) / 2.0
 
+    # 12 vértices: 3 retângulos áureos ortogonais
     raw = []
-    for s1 in (+1, -1):
-        for s2 in (+1, -1):
-            raw.append([0, s1, s2 * phi])
-            raw.append([s1, s2 * phi, 0])
-            raw.append([s2 * phi, 0, s1])
+    for s1 in (1, -1):
+        for s2 in (1, -1):
+            raw.append([0,  s1,       s2 * phi])
+            raw.append([s1, s2 * phi, 0       ])
+            raw.append([s2 * phi, 0,  s1      ])
 
     vertices = np.array(raw, dtype=float)
-    vertices = _project_to_sphere(vertices)
+    vertices -= vertices.mean(axis=0)
+    vertices /= np.max(np.linalg.norm(vertices, axis=1))
 
-    # 20 faces do icosaedro (índices canônicos)
-    faces = [
-        [0, 2, 8],  [0, 8, 4],  [0, 4, 6],  [0, 6, 10], [0, 10, 2],
-        [3, 1, 9],  [3, 9, 5],  [3, 5, 7],  [3, 7, 11], [3, 11, 1],
-        [2, 1, 8],  [8, 1, 5],  [8, 5, 4],  [4, 5, 7],  [4, 7, 6],
-        [6, 7, 11], [6, 11, 10],[10, 11, 9],[10, 9, 2],  [2, 9, 1],
-    ]
-    faces = _ensure_outward_normals(vertices, faces)
+    # Convex hull de 12 pontos = 20 faces triangulares
+    from scipy.spatial import ConvexHull as _CH
+    hull = _CH(vertices)
+    center = vertices.mean(axis=0)
+    faces = []
+    for tri in hull.simplices:
+        a, b, c = vertices[tri[0]], vertices[tri[1]], vertices[tri[2]]
+        n_ = np.cross(b - a, c - a)
+        fc = np.array([a, b, c]).mean(0)
+        tri_list = list(tri)
+        if np.dot(n_, fc - center) < 0:
+            tri_list = [tri_list[0], tri_list[2], tri_list[1]]
+        faces.append(tri_list)
+
     normals = _compute_normals(vertices, faces)
     return DiceMesh(
         dice_type="d20",
@@ -622,10 +548,6 @@ def _build_d20() -> DiceMesh:
         face_values=tuple(range(1, 21)),
     )
 
-
-# ---------------------------------------------------------------------------
-# Registry e factory pública
-# ---------------------------------------------------------------------------
 
 _BUILDERS = {
     "d4":  _build_d4,
