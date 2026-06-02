@@ -372,66 +372,54 @@ def _build_d8() -> DiceMesh:
 def _build_d10() -> DiceMesh:
     """
     Trapezoedro pentagonal — d10.
-    10 vértices, 10 faces romboides (kite-shaped).
-    Valores: 1–10.
+    12 vértices (2 anéis de 5 + 2 polos), 10 faces kite.
+    Valores: 1–10 (ímpares nas faces upper, pares nas lower — padrão de dado).
 
-    Geometria: dois anéis de 5 vértices intercalados angularmente,
-    mais dois polos usados apenas como âncoras de construção para
-    garantir que as normais apontem para fora.
-    As 10 faces romboides são construídas em pares (upper-kite + lower-kite).
+    Geometria: dois anéis intercalados de 36° + polos em y=±1.
+    Os polos são VÉRTICES REAIS das faces (kites), não só âncoras.
+    Não usa _project_to_sphere — normaliza pelo raio máximo para preservar
+    as proporções e garantir que as faces kite sejam visualmente corretas.
+
+    V=12, F=10, E=20 → Euler=2 (esfera topológica, manifold perfeito).
     """
     n = 5
-    h = 0.4   # altura dos anéis
-    r = 0.917  # raio dos anéis (ajustado para esfera unitária)
-    pole_h = 1.0  # polos em y=±1
+    h      = 0.4    # altura dos anéis (y = ±h)
+    r      = 0.917  # raio equatorial dos anéis
+    pole_h = 1.0    # altura dos polos (y = ±pole_h)
 
     verts_list = []
 
-    # Anel superior (y = +h), ângulos 0, 2π/5, 4π/5, ...
+    # Anel superior: índices 0..4
     for i in range(n):
-        angle = 2 * np.pi * i / n
-        verts_list.append([r * np.cos(angle), h, r * np.sin(angle)])
+        a = 2 * np.pi * i / n
+        verts_list.append([r * np.cos(a),  h, r * np.sin(a)])
 
-    # Anel inferior (y = -h), intercalado de π/n
+    # Anel inferior: índices 5..9, intercalado de π/n (36°)
     for i in range(n):
-        angle = 2 * np.pi * i / n + np.pi / n
-        verts_list.append([r * np.cos(angle), -h, r * np.sin(angle)])
+        a = 2 * np.pi * i / n + np.pi / n
+        verts_list.append([r * np.cos(a), -h, r * np.sin(a)])
 
-    # Polos: índices 10 (+Y) e 11 (-Y)
-    verts_list.append([0,  pole_h, 0])  # 10: polo superior
-    verts_list.append([0, -pole_h, 0])  # 11: polo inferior
+    # Polos: índice 10 (+Y) e 11 (−Y)
+    verts_list.append([0.,  pole_h, 0.])
+    verts_list.append([0., -pole_h, 0.])
 
     vertices = np.array(verts_list, dtype=float)
-    vertices = _project_to_sphere(vertices)
 
-    # 10 faces romboides:
-    # 5 "upper kites": polo superior → sup[i] → inf[i] → sup[i+1]
-    # 5 "lower kites": polo inferior → inf[i] → sup[i+1] → inf[i+1]
+    # Normaliza pelo raio máximo — preserva proporções e mantém faces kite planas.
+    # NÃO usa _project_to_sphere (deformaria as faces).
+    max_r = np.max(np.linalg.norm(vertices, axis=1))
+    vertices = vertices / max_r
+
+    # 10 faces kite (V=12, E=20, F=10 → Euler=2, manifold perfeito):
+    #   Upper kite i : polo_sup(10) — sup[(i+1)%n] — inf[i] — sup[i]
+    #   Lower kite i : polo_inf(11) — inf[i] — sup[(i+1)%n] — inf[(i+1)%n]
     faces = []
     for i in range(n):
         j = (i + 1) % n
-        sup_i  = i          # anel superior, índice i
-        sup_j  = j          # anel superior, índice i+1
-        inf_i  = n + i      # anel inferior, índice i
-        inf_j  = n + j      # anel inferior, índice i+1
-        pole_top = 10
-        pole_bot = 11
+        faces.append([10,    j,   n+i,   i])   # upper kite
+        faces.append([11,  n+i,     j, n+j])   # lower kite
 
-        # Upper kite (aponta para cima e para fora)
-        # Winding CCW visto de fora: polo_top → sup_j → inf_i → sup_i
-        faces.append([pole_top, sup_j, inf_i, sup_i])
-
-        # Lower kite (aponta para baixo e para fora)
-        # Winding CCW visto de fora: polo_bot → inf_i → sup_j → inf_j
-        faces.append([pole_bot, inf_i, sup_j, inf_j])
-
-    normals = _compute_normals(vertices, faces)
-
-    # Verifica e corrige normais que apontam para dentro
-    for fi, face in enumerate(faces):
-        center = vertices[list(face)].mean(axis=0)
-        if np.dot(normals[fi], center) < 0:
-            faces[fi] = list(reversed(face))
+    faces = _ensure_outward_normals(vertices, faces)
     normals = _compute_normals(vertices, faces)
 
     return DiceMesh(
@@ -441,7 +429,6 @@ def _build_d10() -> DiceMesh:
         normals=normals,
         face_values=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
     )
-
 
 def _build_d12() -> DiceMesh:
     """

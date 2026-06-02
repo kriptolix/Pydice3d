@@ -253,7 +253,8 @@ class Renderer:
     def draw(
         self,
         scene: RenderScene,
-        camera: "FixedCamera | OrbitalCamera",
+        VP: np.ndarray,
+        cam_pos: np.ndarray,
         width: int,
         height: int,
     ) -> None:
@@ -262,17 +263,15 @@ class Renderer:
 
         Parâmetros
         ----------
-        scene  : RenderScene atualizado (scene.update() já chamado)
-        camera : câmera ativa
-        width  : largura do viewport em pixels
-        height : altura do viewport em pixels
+        scene   : RenderScene atualizado (scene.update() já chamado)
+        VP      : matriz view-projection float32 (4×4)
+        cam_pos : posição da câmera no mundo (vec3)
+        width   : largura do viewport em pixels físicos
+        height  : altura do viewport em pixels físicos
         """
         GL.glViewport(0, 0, width, height)
         GL.glClearColor(0.08, 0.08, 0.10, 1.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
-
-        VP = camera.view_projection(width, height)
-        cam_pos = camera.position
 
         self._draw_ground(VP)
         self._draw_dice(scene, VP, cam_pos)

@@ -139,6 +139,27 @@ void main() {
 }
 """
 
+# ────────────────────────────────────────────────────────────────────────────
+# Shaders de wireframe (debug)
+# ────────────────────────────────────────────────────────────────────────────
+
+WIRE_VERT = """
+#version 330 core
+layout(location = 0) in vec3 a_position;
+uniform mat4 u_mvp;
+void main() {
+    gl_Position = u_mvp * vec4(a_position, 1.0);
+}
+"""
+
+WIRE_FRAG = """
+#version 330 core
+out vec4 frag_color;
+uniform vec3 u_color;
+void main() {
+    frag_color = vec4(u_color, 1.0);
+}
+"""
 
 # ────────────────────────────────────────────────────────────────────────────
 # Compilação e linkagem

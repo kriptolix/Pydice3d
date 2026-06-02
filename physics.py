@@ -14,7 +14,7 @@ import math
 import random
 import numpy as np
 
-from collision import _COLLISION_VERTS
+from dice_mesh import get_mesh
 
 # Dimensões da bandeja (em metros do Bullet)
 TRAY_W  = 9.0    # largura X
@@ -129,20 +129,13 @@ class PhysicsWorld:
                 physicsClientId=self.client
             )
 
-        gen = _COLLISION_VERTS.get(dice_type)
-        if gen is None:
-            raise ValueError(
-                f"Tipo de dado desconhecido: {dice_type!r}. "
-                f"Use um de: d4, d6, d8, d10, d12, d20"
-            )
-
-        verts = gen(r)
+        mesh = get_mesh(dice_type)
+        # Vértices na esfera unitária → escala para raio r
+        verts = (mesh.vertices * r).tolist()
         return pb.createCollisionShape(
             pb.GEOM_MESH,
             vertices=verts,
             physicsClientId=self.client,
-            # sem flags: PyBullet usa convex hull automaticamente para GEOM_MESH
-            # dinâmico — mais estável que GEOM_FORCE_CONCAVE_TRIMESH
         )
 
     def add_dice(self, dice_type: str = "d6") -> int:
@@ -206,6 +199,15 @@ class PhysicsWorld:
     # ------------------------------------------------------------------
     # Controle de simulação
     # ------------------------------------------------------------------
+
+    def create_dice_body(self, dice_type: str, position: tuple, scale: float = 1.0) -> int:
+        """
+        Alias semântico para add_dice, usado por dice.Dice.create().
+        `position` e `scale` são registrados; a posição inicial é sobrescrita
+        pelo lançamento em add_dice, mas pode ser usada futuramente.
+        """
+        self._dice_scale = scale
+        return self.add_dice(dice_type)
 
     def remove_all_dice(self):
         for bid in self.dice_ids:

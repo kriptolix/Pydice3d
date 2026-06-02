@@ -14,10 +14,10 @@ from gi.repository import Gtk, GLib
 import sys
 
 from physics import PhysicsWorld
-from glarena import DiceGLArea
+from glarena import DiceGLArea, DEBUG_NONE, DEBUG_COLLISION, DEBUG_OVERLAY
 
 # from dice_reader import start_calibration
-        
+
 
 
 DICE_TYPES = ["d4", "d6", "d8", "d10", "d12", "d20"]
@@ -72,6 +72,27 @@ class AppWindow(Gtk.ApplicationWindow):
         btn.connect("clicked", self._on_roll)
         ctrl.append(btn)
 
+        # Controles de debug
+        debug_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        debug_row.set_halign(Gtk.Align.CENTER)
+        root.append(debug_row)
+
+        debug_row.append(Gtk.Label(label="Debug:"))
+
+        self._debug_btns: list[Gtk.ToggleButton] = []
+        debug_labels = [("Normal [N]", DEBUG_NONE),
+                        ("Só Colisão [C]", DEBUG_COLLISION),
+                        ("Overlay [O]", DEBUG_OVERLAY)]
+
+        for label, mode in debug_labels:
+            btn_d = Gtk.ToggleButton(label=label)
+            if mode == DEBUG_NONE:
+                btn_d.set_active(True)
+            btn_d.connect("toggled", self._on_debug_toggle, mode)
+            self._debug_btns.append(btn_d)
+            debug_row.append(btn_d)
+
+
         # Status
         self.status = Gtk.Label(label="Selecione o dado e clique em Rolar.")
         self.status.add_css_class("dim-label")
@@ -81,6 +102,17 @@ class AppWindow(Gtk.ApplicationWindow):
         self.gl.timer_id = GLib.timeout_add(32, self._idle_render)
 
         # start_calibration("d4")   # troque pelo tipo que quer calibrar
+
+    def _on_debug_toggle(self, btn: "Gtk.ToggleButton", mode: int) -> None:
+        if not btn.get_active():
+            return
+        # Garante exclusividade (radio behavior manual)
+        for b in self._debug_btns:
+            if b is not btn:
+                b.handler_block_by_func(self._on_debug_toggle)
+                b.set_active(False)
+                b.handler_unblock_by_func(self._on_debug_toggle)
+        self.gl.debug_mode = mode
 
     def _idle_render(self) -> bool:
         self.gl.queue_render()
