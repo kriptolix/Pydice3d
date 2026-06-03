@@ -429,7 +429,7 @@ class PhysicsWorld:
         angle    = random.uniform(0, 2*math.pi)
         orn      = pb.getQuaternionFromAxisAngle(axis, angle,
                                                  physicsClientId=self.client)
-        mass     = 0.020
+        mass     = 0.025
 
         body = pb.createMultiBody(
             baseMass=mass,

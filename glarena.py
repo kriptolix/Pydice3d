@@ -107,7 +107,7 @@ class CollisionWireframe:
         if self._built:
             return
 
-        r = DICE_TARGET_SIZE / 2.0
+        r = DICE_TARGET_SIZE   # mesmo valor usado em _make_collision_shape
         verts = self._get_hull_verts(r)
         edges = self._hull_edges(verts)
 
@@ -136,15 +136,17 @@ class CollisionWireframe:
 
     def _get_hull_verts(self, r: float) -> np.ndarray:
         if self.dice_type == "d6":
-            # Cubo (GEOM_BOX)
+            # GEOM_BOX com halfExtents = r/2
+            half = r / 2.0
             pts = []
             for sx in (+1, -1):
                 for sy in (+1, -1):
                     for sz in (+1, -1):
-                        pts.append([sx * r, sy * r, sz * r])
+                        pts.append([sx * half, sy * half, sz * half])
             return np.array(pts, dtype=np.float32)
 
         mesh = get_mesh(self.dice_type)
+        # Mesma escala que _make_collision_shape: vertices * r
         return (mesh.vertices * r).astype(np.float32)
 
     @staticmethod
@@ -286,6 +288,9 @@ class DiceGLArea(Gtk.GLArea):
         if self.get_error():
             return
         self._wire_prog = _compile_wire_program()
+        # Cria renderer vazio (sem dados) para que o fundo apareça ao carregar
+        empty_scene = RenderScene([])
+        self._renderer = Renderer(empty_scene, [])
 
     def _on_unrealize(self, _area) -> None:
         self.make_current()
@@ -320,7 +325,7 @@ class DiceGLArea(Gtk.GLArea):
         if self._renderer and self._scene:
             if self._debug_mode == DEBUG_COLLISION:
                 GL.glViewport(0, 0, w, h)
-                GL.glClearColor(0.05, 0.05, 0.07, 1.0)
+                GL.glClearColor(0.0, 0.0, 0.0, 0.0)
                 GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
                 self._draw_collision_wire()
             elif self._debug_mode == DEBUG_OVERLAY:
@@ -334,9 +339,9 @@ class DiceGLArea(Gtk.GLArea):
                 self._renderer.draw(self._scene, self._view_projection(),
                                     self._cam_position(), w, h)
         else:
-            # Contexto vivo mas sem dados — limpa
+            # Sem renderer ainda — limpa com transparente
             GL.glViewport(0, 0, w, h)
-            GL.glClearColor(0.08, 0.08, 0.10, 1.0)
+            GL.glClearColor(0.0, 0.0, 0.0, 0.0)
             GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
 
         return True  # indica que o render foi tratado
@@ -357,14 +362,13 @@ class DiceGLArea(Gtk.GLArea):
 
     # ── Iniciar simulação ────────────────────────────────────────────
 
-    def start_simulation(self, n: int, dice_type: str) -> None:
+    def start_simulation(self, pool: dict[str, int]) -> None:
         """
         Remove dados anteriores e inicia uma nova rolagem.
 
         Parâmetros
         ----------
-        n         : quantidade de dados
-        dice_type : "d4", "d6", "d8", "d10", "d12" ou "d20"
+        pool : dicionário {dice_type: quantidade}, ex: {"d6": 2, "d20": 1}
         """
         self.make_current()
         if self.get_error():
@@ -380,9 +384,9 @@ class DiceGLArea(Gtk.GLArea):
             w.delete()
         self._wire_objs.clear()
 
-        # Spawn
+        # Spawn com o pool completo
         result = spawn_dice(
-            spec={dice_type: n},
+            spec=pool,
             physics=self.physics,
             cfg=SpawnConfig(),
         )

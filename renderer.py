@@ -270,10 +270,9 @@ class Renderer:
         height  : altura do viewport em pixels físicos
         """
         GL.glViewport(0, 0, width, height)
-        GL.glClearColor(0.08, 0.08, 0.10, 1.0)
+        GL.glClearColor(0.0, 0.0, 0.0, 0.0)   # totalmente transparente
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
 
-        self._draw_ground(VP)
         self._draw_dice(scene, VP, cam_pos)
 
     def _draw_ground(self, VP: np.ndarray) -> None:

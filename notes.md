@@ -6,13 +6,26 @@ numpy
 scipy 
 pybullet 
 pygobject
+simpleaudio
 
 ## Problemas, 
 
-* formato do d10 ainda incorreto
-* a visualização do collision_shape não parece ser afetada pelo tamanho, ruim para debug
-* o cenario so aparece ao clicar em rolar, não é um problema mas é incomodo
+* o scenario so aparece ao clicar em rolar, não é um problema mas é incomodo
+* normalizar tamanho visual dos dados
+* adicionar capacidades de carregamento de texturas
+* audio com simpleaudio
 
+import simpleaudio as sa
+
+class SoundBank:
+    def __init__(self, files):
+        self.sounds = {
+            name: sa.WaveObject.from_wave_file(path)
+            for name, path in files.items()
+        }
+
+    def play(self, name):
+        self.sounds[name].play()
 
 ## Decisões
 

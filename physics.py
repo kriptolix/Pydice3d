@@ -17,14 +17,14 @@ import numpy as np
 from dice_mesh import get_mesh
 
 # Dimensões da bandeja (em metros do Bullet)
-TRAY_W  = 9.0    # largura X
+TRAY_W  = 13.0    # largura X
 TRAY_D  = 9.0    # profundidade Z
 TRAY_H  = 0.15   # espessura do piso
 WALL_H  = 9.0    # altura das paredes
-WALL_T  = 0.15    # espessura das paredes
+WALL_T  = 0.6    # espessura das paredes
 
 # Tamanho alvo do dado no mundo físico (em metros).
-DICE_TARGET_SIZE = 0.8
+DICE_TARGET_SIZE = 1.0
 
 LAUNCH_Y       = 1.5
 LAUNCH_VEL_MAX = 5.0
@@ -32,7 +32,7 @@ LAUNCH_VEL_MAX = 5.0
 # Timestep fixo da simulação Bullet
 SIM_TIMESTEP   = 1.0 / 240.0
 # Sub-passos por chamada de step — mais passos reduzem interpenetração entre dados
-SIM_SUBSTEPS   = 10
+SIM_SUBSTEPS   = 6
 
 
 # ---------------------------------------------------------------------------
@@ -120,21 +120,24 @@ class PhysicsWorld:
     # ------------------------------------------------------------------
 
     def _make_collision_shape(self, dice_type: str) -> int:
-        r = DICE_TARGET_SIZE / 1 # was 2.0, but 1 just reduce overlap
-        d = DICE_TARGET_SIZE / 2.0
+        # r = tamanho alvo completo (sem dividir por 2).
+        # Vértices da DiceMesh normalizados para raio unitário → escala por r.
+        # Não encolhemos pela margem do Bullet: isso causaria afundar no chão.
+        r = DICE_TARGET_SIZE * 1.1
+
         if dice_type == "d6":
+            half = r / 2.0
             return pb.createCollisionShape(
                 pb.GEOM_BOX,
-                halfExtents=[d, d, d],
+                halfExtents=[half, half, half],
                 physicsClientId=self.client
             )
 
         mesh = get_mesh(dice_type)
-        # Vértices na esfera unitária → escala para raio r
         verts = (mesh.vertices * r).tolist()
         return pb.createCollisionShape(
             pb.GEOM_MESH,
-            vertices=verts,            
+            vertices=verts,
             physicsClientId=self.client,
         )
 
@@ -168,27 +171,23 @@ class PhysicsWorld:
         pb.changeDynamics(
             body, -1,
             restitution=0.4,
-            linearDamping=0.02,
-            angularDamping=0.02,
-            rollingFriction=0.02,
-            spinningFriction=0.03,
+            linearDamping=0.01,
+            angularDamping=0.01,
+            rollingFriction=0.01,
+            spinningFriction=0.02,
             lateralFriction=1.5,
-            ccdSweptSphereRadius=DICE_TARGET_SIZE * 0.5,
+            # CCD: raio = metade do tamanho do dado — detecta colisões dentro de um passo
+            ccdSweptSphereRadius=DICE_TARGET_SIZE * 0.25,
+            # Margem de contato: empurra os dados para fora quando sobrepostos
             contactProcessingThreshold=0.0,
             physicsClientId=self.client
         )
-
-        pb.setPhysicsEngineParameter(            
-            numSolverIterations=50,
-            physicsClientId=self.client
-        )
-
-            
+               
         pb.resetBaseVelocity(            
             body,
             linearVelocity=[
                 random.uniform(-0.5, 0.5),        # desvio lateral mínimo
-                random.uniform(1.0, 3.0),         # leve vertical
+                random.uniform(0.5, 1.0),         # leve vertical
                 random.uniform(-8.0, -6.0),       # impulso principal para dentro
             ],
             angularVelocity=[

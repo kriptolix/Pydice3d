@@ -147,7 +147,7 @@ def _ensure_outward_normals(vertices: np.ndarray, faces: list[list[int]]) -> lis
     return corrected
 
 
-def _build_d4_old() -> DiceMesh:
+def _build_d4() -> DiceMesh:
     """
     Tetraedro regular — d4.
     4 vértices, 4 faces triangulares.
@@ -179,7 +179,7 @@ def _build_d4_old() -> DiceMesh:
         face_values=(1, 2, 3, 4),
     )
 
-def _build_d4(bevel=0.10)-> DiceMesh:
+def _build_d4_beveled(bevel=0.15)-> DiceMesh:
 
     """
     Cria um tetraedro chanfrado.
@@ -218,30 +218,14 @@ def _build_d4(bevel=0.10)-> DiceMesh:
 
         midpoint *= (1.0 - bevel * 0.5)
 
-        edge_points.append(midpoint)    
+        edge_points.append(midpoint)
 
-    raw = np.vstack([
+    vertices = np.vstack([
         corners,
         np.array(edge_points)
     ])
 
-    vertices = _project_to_sphere(raw)
-
-    faces = [
-        [1, 3, 2],  # face oposta ao vértice 0 → valor 1
-        [0, 2, 3],  # face oposta ao vértice 1 → valor 2
-        [0, 3, 1],  # face oposta ao vértice 2 → valor 3
-        [0, 1, 2],  # face oposta ao vértice 3 → valor 4
-    ]
-    faces = _ensure_outward_normals(vertices, faces)
-    normals = _compute_normals(vertices, faces)
-    return DiceMesh(
-        dice_type="d4",
-        vertices=vertices,
-        faces=tuple(tuple(f) for f in faces),
-        normals=normals,
-        face_values=(1, 2, 3, 4),
-    )
+    return vertices
 
 def _build_d6() -> DiceMesh:
     """
@@ -384,49 +368,63 @@ def _build_d8() -> DiceMesh:
         face_values=(1, 2, 3, 4, 5, 6, 7, 8),
     )
 
+
 def _build_d10() -> DiceMesh:
     """
     Trapezoedro pentagonal — d10.
-    12 vértices (2 anéis de 5 + 2 polos), 10 faces kite.
+    Dual do antiprisma pentagonal: 12 vértices, 10 faces kite.
     V=12, F=10, E=20 → Euler=2. Manifold perfeito.
 
-    Não usa _project_to_sphere — normaliza pelo raio máximo para manter
-    as faces kite geometricamente corretas.
+    Cada face é um kite com ângulos internos 36°, 108°, 108°, 108°
+    (conforme a geometria canônica do dado de 10 faces).
+
+    Construção: dual do antiprisma pentagonal regular (h=0.5, r=1.0),
+    calculado pelo método do polo recíproco e normalizado para raio unitário.
+    Vértices e faces hardcoded para eliminar dependência de scipy em runtime.
     """
-    n = 5
-    h = 0.4; r = 0.917; ph = 1.0
+    # Vértices pré-calculados (normalizados, raio máximo = 1.0)
+    # Índices 0-9: anel equatorial (alternado +y/-y)
+    # Índice 10: polo superior (+Y), índice 11: polo inferior (-Y)
+    vertices = np.array([
+        [ 0.44721360,  0.10557281,  0.32491970],  #  0
+        [ 0.17082039, -0.10557281,  0.52573111],  #  1
+        [-0.17082039,  0.10557281,  0.52573111],  #  2
+        [-0.44721360, -0.10557281,  0.32491970],  #  3
+        [-0.55278640,  0.10557281,  0.00000000],  #  4
+        [-0.44721360, -0.10557281, -0.32491970],  #  5
+        [-0.17082039,  0.10557281, -0.52573111],  #  6
+        [ 0.17082039, -0.10557281, -0.52573111],  #  7
+        [ 0.44721360,  0.10557281, -0.32491970],  #  8
+        [ 0.55278640, -0.10557281,  0.00000000],  #  9
+        [ 0.00000000,  1.00000000,  0.00000000],  # 10 polo sup
+        [ 0.00000000, -1.00000000,  0.00000000],  # 11 polo inf
+    ], dtype=float)
 
-    verts_list = []
-    for i in range(n):
-        a = 2 * np.pi * i / n
-        verts_list.append([r * np.cos(a),  h, r * np.sin(a)])
-    for i in range(n):
-        a = 2 * np.pi * i / n + np.pi / n
-        verts_list.append([r * np.cos(a), -h, r * np.sin(a)])
-    verts_list.append([0.,  ph, 0.])   # índice 10: polo superior
-    verts_list.append([0., -ph, 0.])   # índice 11: polo inferior
+    # 10 faces kite — cada uma com vértice agudo (36°) no polo,
+    # dois vértices de 108° nos lados e um vértice de 108° na base.
+    # Winding CCW visto de fora.
+    faces_raw = [
+        (10,  0,  9,  8),  # kite  1
+        ( 2,  1,  0, 10),  # kite  2
+        ( 4,  3,  2, 10),  # kite  3
+        ( 6,  5,  4, 10),  # kite  4
+        ( 8,  7,  6, 10),  # kite  5
+        ( 9,  0,  1, 11),  # kite  6
+        (11,  1,  2,  3),  # kite  7
+        (11,  3,  4,  5),  # kite  8
+        (11,  5,  6,  7),  # kite  9
+        (11,  7,  8,  9),  # kite 10
+    ]
 
-    vertices = np.array(verts_list, dtype=float)
-    vertices -= vertices.mean(axis=0)
-    vertices /= np.max(np.linalg.norm(vertices, axis=1))
-
-    # 10 faces kite: upper (polo sup) + lower (polo inf)
-    # Winding CCW visto de fora verificado por _ensure_outward_normals
-    faces = []
-    for i in range(n):
-        j = (i + 1) % n
-        faces.append([10,   j, n+i,   i])   # upper kite
-        faces.append([11, n+i,   j, n+j])   # lower kite
-
-    faces = _ensure_outward_normals(vertices, faces)
-    normals = _compute_normals(vertices, faces)
+    normals = _compute_normals(vertices, [list(f) for f in faces_raw])
     return DiceMesh(
         dice_type="d10",
         vertices=vertices,
-        faces=tuple(tuple(f) for f in faces),
+        faces=tuple(faces_raw),
         normals=normals,
         face_values=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
     )
+
 
 def _build_d12() -> DiceMesh:
     """
@@ -504,6 +502,7 @@ def _build_d12() -> DiceMesh:
         normals=normals,
         face_values=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
     )
+
 
 def _build_d20() -> DiceMesh:
     """
