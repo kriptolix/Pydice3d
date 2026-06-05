@@ -16,7 +16,7 @@ from typing import Optional
 
 import pybullet as pb
 
-from dice_mesh import DiceMesh, DiceType, get_mesh
+from pydice3d.dice_mesh import DiceMesh, DiceType, get_mesh
 
 
 DEFAULT_SCALE: float = 1.0

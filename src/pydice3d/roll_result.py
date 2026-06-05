@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from dice_state import DiceState
+    from pydice3d.dice_state import DiceState
 
 
 # ────────────────────────────────────────────────────────────────────────────

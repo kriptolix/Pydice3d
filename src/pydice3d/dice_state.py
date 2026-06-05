@@ -21,7 +21,7 @@ from typing import Optional
 import numpy as np
 import pybullet as pb
 
-from dice import Dice
+from pydice3d.dice import Dice
 
 
 # ────────────────────────────────────────────────────────────────────────────

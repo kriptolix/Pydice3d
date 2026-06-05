@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydice3d"
+version = "0.1.0"
+description = "3D dice rendering and physics library"
+requires-python = ">=3.13"
+
+dependencies = [
+    "numpy>=2.4,<3",
+    "Pillow>=12,<13",
+    "pybullet>=3.2",
+    "PyOpenGL>=3.1",
+    "PyOpenGL-accelerate>=3.1",
+    "scipy>=1.17,<2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pydice3d = ["assets/**/*"]

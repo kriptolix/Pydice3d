@@ -27,21 +27,30 @@ from gi.repository import Gtk, GLib
 
 from OpenGL import GL
 
-from camera       import FixedCamera, look_at, perspective
-from physics      import PhysicsWorld
-from render_data  import RenderScene
-from renderer     import Renderer
-from dice_state   import DiceState
-from dice         import Dice
-from spawner      import spawn_dice, SpawnConfig
-from roll_result  import RollMonitor, RollResult
-from dice_mesh    import get_mesh
-from physics      import DICE_TARGET_SIZE
+import json
+from importlib.resources import files
+
+from pydice3d.camera       import FixedCamera, look_at, perspective
+from pydice3d.physics      import PhysicsWorld
+from pydice3d.render_data  import RenderScene
+from pydice3d.renderer     import Renderer
+from pydice3d.dice_state   import DiceState
+from pydice3d.dice         import Dice
+from pydice3d.spawner      import spawn_dice, SpawnConfig
+from pydice3d.roll_result  import RollMonitor, RollResult
+from pydice3d.dice_mesh    import get_mesh
+from pydice3d.physics      import DICE_TARGET_SIZE
 
 
 # ────────────────────────────────────────────────────────────────────────────
 # Constantes
 # ────────────────────────────────────────────────────────────────────────────
+
+ATLAS_DIR = files("pydice3d.assets").joinpath("atlas")
+
+ATLAS_PNG = str(ATLAS_DIR.joinpath("atlas.png"))
+ATLAS_NORMAL_PNG = str(ATLAS_DIR.joinpath("atlas_normal.png"))
+ATLAS_JSON = ATLAS_DIR.joinpath("atlas.json")
 
 PHYSICS_STEPS_PER_FRAME = 4    # quantos steps de física por frame de render
 DEBUG_NONE      = 0
@@ -56,28 +65,9 @@ COLLISION_WIRE_COLOR = (0.0, 1.0, 0.3)   # verde neon
 # Shaders de wireframe (debug)
 # ────────────────────────────────────────────────────────────────────────────
 
-_WIRE_VERT = """
-#version 330 core
-layout(location = 0) in vec3 a_position;
-uniform mat4 u_mvp;
-void main() {
-    gl_Position = u_mvp * vec4(a_position, 1.0);
-}
-"""
-
-_WIRE_FRAG = """
-#version 330 core
-out vec4 frag_color;
-uniform vec3 u_color;
-void main() {
-    frag_color = vec4(u_color, 1.0);
-}
-"""
-
-
 def _compile_wire_program() -> int:
-    from shaders import build_program
-    return build_program(_WIRE_VERT, _WIRE_FRAG)
+    from pydice3d.shaders import build_program, WIRE_FRAG, WIRE_VERT
+    return build_program(WIRE_VERT, WIRE_FRAG)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -172,7 +162,7 @@ class CollisionWireframe:
         if not self._built or self._n_lines == 0:
             return
 
-        from shaders import set_uniform_mat4, set_uniform_vec3
+        from pydice3d.shaders import set_uniform_mat4, set_uniform_vec3
         GL.glUseProgram(program)
         set_uniform_mat4(program, "u_mvp", mvp)
         set_uniform_vec3(program, "u_color", COLLISION_WIRE_COLOR)
@@ -256,6 +246,8 @@ class DiceGLArea(Gtk.GLArea):
     @debug_mode.setter
     def debug_mode(self, mode: int) -> None:
         self._debug_mode = mode
+        if self._renderer:
+            self._renderer.debug_mode = mode
         self.queue_render()
 
     # ── Sinais GTK/GL ────────────────────────────────────────────────
@@ -294,9 +286,23 @@ class DiceGLArea(Gtk.GLArea):
         if self.get_error():
             return
         self._wire_prog = _compile_wire_program()
-        # Cria renderer vazio (sem dados) para que o fundo apareça ao carregar
+
+        # Carrega atlas de glifos
+        atlas_json = None
+        try:
+            with open(ATLAS_JSON, "r", encoding="utf-8") as f:
+                atlas_json = json.load(f)
+        except Exception as e:
+            print(f"[AVISO] Não foi possível carregar atlas.json: {e}")
+        self._atlas_json = atlas_json
+
         empty_scene = RenderScene([])
-        self._renderer = Renderer(empty_scene, [])
+        self._renderer = Renderer(
+            empty_scene, [],
+            atlas_png=ATLAS_PNG,
+            atlas_normal_png=ATLAS_NORMAL_PNG,
+            atlas_json=atlas_json,
+        )
 
     def _on_unrealize(self, _area) -> None:
         self.make_current()
@@ -407,9 +413,18 @@ class DiceGLArea(Gtk.GLArea):
         dice_types  = [s.dice.dice_type for s in self._states]
 
         if self._renderer is None:
-            self._renderer = Renderer(self._scene, dice_types)
+            self._renderer = Renderer(
+                self._scene, dice_types,
+                atlas_png=ATLAS_PNG,
+                atlas_normal_png=ATLAS_NORMAL_PNG,
+                atlas_json=getattr(self, "_atlas_json", None),
+            )
         else:
             self._renderer.reload(self._scene, dice_types)
+
+        # Sincroniza debug_mode para controle do highlight
+        if self._renderer:
+            self._renderer.debug_mode = self._debug_mode
 
         # Monitor de resultado
         self._monitor = RollMonitor(

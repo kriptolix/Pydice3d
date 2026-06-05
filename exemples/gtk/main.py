@@ -13,7 +13,7 @@ from gi.repository import Gtk, GLib
 
 import sys
 
-from physics import PhysicsWorld
+from pydice3d.physics import PhysicsWorld
 from glarena import DiceGLArea, DEBUG_NONE, DEBUG_COLLISION, DEBUG_OVERLAY
 
 # from dice_reader import start_calibration
@@ -39,7 +39,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.set_child(root)
 
         # Título
-        title = Gtk.Label(label="🎲  Rolador de Dados — Física Real")
+        title = Gtk.Label(label="Rolador de Dados — Física Real")
         title.add_css_class("title-2")
         root.append(title)
 
@@ -69,7 +69,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self._pool_label = Gtk.Label(label="Pool: —")
         pool_row.append(self._pool_label)
 
-        btn_roll = Gtk.Button(label="🎲  Rolar")
+        btn_roll = Gtk.Button(label="Rolar")
         btn_roll.add_css_class("suggested-action")
         btn_roll.connect("clicked", self._on_roll)
         pool_row.append(btn_roll)
@@ -104,9 +104,7 @@ class AppWindow(Gtk.ApplicationWindow):
         root.append(self.status)
 
         # Render idle
-        self.gl.timer_id = GLib.timeout_add(32, self._idle_render)
-
-        # start_calibration("d4")   # troque pelo tipo que quer calibrar
+        self.gl.timer_id = GLib.timeout_add(32, self._idle_render)        
 
     def _on_debug_toggle(self, btn: "Gtk.ToggleButton", mode: int) -> None:
         if not btn.get_active():
@@ -141,7 +139,7 @@ class AppWindow(Gtk.ApplicationWindow):
         if not self._pool:
             self.status.set_label("Adicione dados ao pool primeiro.")
             return
-        total = sum(self._pool.values())
+        
         summary = ", ".join(f"{q}×{t.upper()}" for t, q in sorted(self._pool.items()))
         self.status.set_label(f"Rolando {summary}…")
         self.gl.start_simulation(self._pool.copy())

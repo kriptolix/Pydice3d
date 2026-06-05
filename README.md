@@ -1,4 +1,4 @@
-# pypydice3d
+# pydice3d
 
 > Physics-based 3D polyhedral dice simulation library for Python
 
