@@ -21,7 +21,7 @@ FUDGE_GLYPHS = [GLYPH_PLUS, GLYPH_PLUS,
 
 
 def build_face_glyphs(dice_type: str, face_values: list[int]) -> list[int]:
-    if dice_type == "dfudge":
+    if dice_type == "df":
         return list(FUDGE_GLYPHS)
     glyphs = []
     for v in face_values:
@@ -44,8 +44,8 @@ GLYPH_UV_SCALE: dict[str, float] = {
     "d10":    2.50,   # kite: orientação corrigida via eixo próprio
     "d12":    2.00,
     "d20":    2.50,
-    "d100":   1.00,
-    "dfudge": 1.00,
+    "d100":   2.50,   # mesma geometria kite que o d10
+    "df":     1.00,
 }
 _DEFAULT_UV_SCALE = 1.0
 

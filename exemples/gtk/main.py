@@ -14,7 +14,6 @@ from gi.repository import Gtk, GLib, Adw
 
 import sys
 
-from pydice3d.physics import PhysicsWorld
 from glarena import DiceGLArea, DEBUG_NONE, DEBUG_COLLISION, DEBUG_OVERLAY
 
 
@@ -36,17 +35,18 @@ class AppWindow(Gtk.ApplicationWindow):
         if self.style_manager.get_dark():
             self.theme = "dark"      
 
-        self.physics = PhysicsWorld()
-
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        root.set_margin_top(10);    root.set_margin_bottom(10)
-        root.set_margin_start(10);  root.set_margin_end(10)
+        root.set_margin_top(10)    
+        root.set_margin_bottom(10)
+        root.set_margin_start(10)
+        root.set_margin_end(10)
         self.set_child(root)        
 
         # GL Area
-        self.gl = DiceGLArea(self.physics)
+        self.gl = DiceGLArea()
         self.gl.set_size_request(660, 460)
         self.gl.set_vexpand(True)
+        self.gl.on_roll_complete = self._on_result
         root.append(self.gl)
 
         # ── Dice Pool ────────────────────────────────────────────
@@ -139,17 +139,13 @@ class AppWindow(Gtk.ApplicationWindow):
         if not self._pool:
             self.status.set_label("Add dice to pool first.")
             return
-        
         summary = ", ".join(f"{q}×{t.upper()}" for t, q in sorted(self._pool.items()))
         self.status.set_label(f"Rolling {summary}…")
         self.gl.start_simulation(self._pool.copy())
-        GLib.timeout_add(300, self._check_done)
 
-    def _check_done(self) -> bool:
-        if self.gl.simulating:
-            return True
-        self.status.set_label("Dice stopped")
-        return False
+    def _on_result(self, result) -> None:
+        parts = [f"{t.upper()}: {vals}" for t, vals in sorted(result.as_dict().items())]
+        self.status.set_label("  ".join(parts) + f"  (total {result.total})")
 
 
 class App(Gtk.Application):

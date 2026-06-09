@@ -12,10 +12,9 @@ simpleaudio
 
 ## Problemas 
 
-* D100 precisa lançar 1d100 + 1d10
-* numeros no d100 estão fora de escala
-* DF, simbolos nas faces e valores precisam ser ajustados
 * Cria uma forma de escolher entre light e dark themes
+* testar redimensionamento de janela
+* dados empilhados não terminam a rolagem 
 
 * adicionar capacidades de carregamento de texturas
 * audio com simpleaudio

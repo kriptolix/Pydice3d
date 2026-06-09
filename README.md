@@ -43,7 +43,7 @@ It is not required to use the library.
 
 The project is currently under active development and is in an alpha stage.
 
-The architecture, APIs, and internal organization are evolving rapidly and may change significantly between releases. At this stage, the primary goal is experimentation, validation, and stabilization of the core design.
+The architecture, APIs, and internal organization are evolving rapidly and may change significantly between releases. 
 
 Bug reports, feature suggestions, feedback end code contributions and pull requests will only be accepted once the project reaches a more stable state and the public APIs have settled. This policy is intended to avoid wasting contributor effort on code that may become obsolete as the project evolves.
 

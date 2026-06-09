@@ -86,8 +86,13 @@ class RollResult:
         """
         Constrói RollResult a partir de uma lista de DiceState.
 
-        Apenas dados com result não-None são incluídos. Se algum dado ainda
-        não tem resultado, seu tipo aparece na chave mas sem o valor pendente.
+        Regra especial do d100: cada d10 marcado como ``dice.d100_partner``
+        é combinado com seu d100 correspondente para formar o valor final:
+            resultado = dezenas_d100 + unidades_d10
+        onde dezenas_d100 ∈ {0,10,…,90} e unidades_d10 ∈ {0,1,…,9}
+        (o d10 mostra 10 como "0").
+        O valor combinado entra na chave "d100"; o d10 parceiro não aparece
+        separadamente em "d10".
 
         Parâmetros
         ----------
@@ -97,11 +102,21 @@ class RollResult:
         -------
         RollResult com os valores disponíveis no momento da chamada.
         """
+        # Separar estados em d100, d10-parceiro e resto
+        d100_states    = [s for s in states
+                          if s.dice.dice_type == "d100"]
+        partner_states = [s for s in states
+                          if s.dice.dice_type == "d10"
+                          and getattr(s.dice, "d100_partner", False)]
+        other_states   = [s for s in states
+                          if s not in d100_states and s not in partner_states]
+
         values_by_type: dict[str, list[int]] = {}
         total      = 0
         dice_count = 0
 
-        for state in states:
+        # Dados normais
+        for state in other_states:
             dtype = state.dice.dice_type
             if dtype not in values_by_type:
                 values_by_type[dtype] = []
@@ -109,6 +124,26 @@ class RollResult:
                 values_by_type[dtype].append(state.result)
                 total      += state.result
                 dice_count += 1
+
+        # d100 + parceiros combinados
+        if d100_states:
+            if "d100" not in values_by_type:
+                values_by_type["d100"] = []
+            for idx, d100_state in enumerate(d100_states):
+                partner = partner_states[idx] if idx < len(partner_states) else None
+                if d100_state.result is not None and partner is not None and partner.result is not None:
+                    units = partner.result
+                    # d10 usa face_value 10 para representar "0"
+                    if units == 10:
+                        units = 0
+                    tens = d100_state.result  # já é 0, 10, 20, ..., 90
+                    combined = tens + units
+                    # Convenção: 00+0 = 100
+                    if combined == 0:
+                        combined = 100
+                    values_by_type["d100"].append(combined)
+                    total      += combined
+                    dice_count += 1
 
         all_resting = all(s.is_resting for s in states)
 

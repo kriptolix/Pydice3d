@@ -253,12 +253,14 @@ def _build_d6(df=False) -> DiceMesh:
     normals = _compute_normals(vertices, faces)
     
     if df:
+        # Faces na mesma ordem que FUDGE_GLYPHS: +1, +1, -1, -1, 0, 0
+        # +Z→+1, -Z→+1, -Y→-1, +Y→-1, +X→0, -X→0
         return DiceMesh(
             dice_type="df",
             vertices=vertices,
             faces=tuple(tuple(f) for f in faces),
             normals=normals,
-            face_values=(-1, +1, 0, 0, -1, +1),
+            face_values=(1, 1, -1, -1, 0, 0),
         )
 
     return DiceMesh(
@@ -448,12 +450,14 @@ def _build_d10(d100=False) -> DiceMesh:
     normals = _compute_normals(vertices, [list(f) for f in faces_raw])
     
     if d100:
+        # face_values são as dezenas: 0 representa "00", 10→"10", ..., 90→"90"
+        # glyph_d100(v) = 21 + v//10, portanto v=0→glifo 21 ("00"), v=90→glifo 30 ("90")
         return DiceMesh(
             dice_type="d100",
             vertices=vertices,
             faces=tuple(faces_raw),
             normals=normals,
-            face_values=(10, 20, 30, 40, 50, 60, 70, 80, 90, 100),
+            face_values=(0, 10, 20, 30, 40, 50, 60, 70, 80, 90),
         )
 
     return DiceMesh(

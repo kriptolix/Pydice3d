@@ -15,6 +15,7 @@ import random
 import numpy as np
 
 from pydice3d.dice_mesh import get_mesh
+from pydice3d.audio     import CollisionEvent, Surface
 
 # Tray dimensions (in meters of the Bullet)
 TRAY_W  = 13.0   
@@ -77,6 +78,15 @@ class PhysicsWorld:
         self._pending_positions: list[tuple[float, float]] = []
         self._pending_dice_type: str = ""
 
+        # IDs da geometria estática — usados para classificar o tipo de
+        # superfície em poll_collision_events().
+        self._floor_id: int = -1   # definido em _build_tray
+        self._wall_ids: set[int] = set()
+
+        # Pares de corpos que estavam em contato no tick anterior.
+        # Usado para emitir eventos apenas na *nova* colisão, não no contato contínuo.
+        self._prev_contacts: set[tuple[int, int]] = set()
+
         self._build_tray()
 
     # ------------------------------------------------------------------
@@ -127,6 +137,7 @@ class PhysicsWorld:
             lateralFriction=1.2,       
             physicsClientId=self.client,
         )
+        self._floor_id = floor_id
 
         # Paredes
         for pos, he in [
@@ -142,6 +153,7 @@ class PhysicsWorld:
                 lateralFriction=0.5,
                 physicsClientId=self.client,
             )
+            self._wall_ids.add(wall)
 
     # ------------------------------------------------------------------
     # Dice creation
@@ -255,6 +267,8 @@ class PhysicsWorld:
         for bid in self._static_ids:
             pb.removeBody(bid, physicsClientId=self.client)
         self._static_ids.clear()
+        self._wall_ids.clear()
+        self._floor_id = -1
         # Salva novas dimensões e reconstrói
         global TRAY_W, TRAY_D
         TRAY_W = half_w * 2
@@ -275,6 +289,82 @@ class PhysicsWorld:
         self._pending_dice_type = ""
         self._still_frames      = 0
         self._warm_frames.clear()
+        self._prev_contacts.clear()
+
+    # ------------------------------------------------------------------
+    # Detecção de colisões para áudio
+    # ------------------------------------------------------------------
+
+    def poll_collision_events(self) -> list[CollisionEvent]:
+        """
+        Detecta novas colisões ocorridas no último step() e retorna
+        uma lista de CollisionEvent para o motor de áudio processar.
+
+        Somente colisões *novas* (pares que não estavam em contato no tick
+        anterior) são emitidas, evitando múltiplos disparos de som enquanto
+        os objetos permanecem encostados ou vibram micro-contatos.
+
+        O impulso reportado é a soma das forças normais de todos os pontos
+        de contato do par — proxy fiel da energia transferida no impacto.
+
+        Retorna lista vazia se não há dados ou não houve contatos novos.
+        """
+        if not self.dice_ids:
+            return []
+
+        dice_set   = set(self.dice_ids)
+        curr_contacts: set[tuple[int, int]] = set()
+        events: list[CollisionEvent] = []
+
+        # Acumula impulso por par (PyBullet pode retornar vários pontos
+        # de contato para o mesmo par de corpos no mesmo tick)
+        pair_impulse: dict[tuple[int, int], float] = {}
+
+        for bid in self.dice_ids:
+            contacts = pb.getContactPoints(
+                bodyA=bid,
+                physicsClientId=self.client,
+            )
+            if not contacts:
+                continue
+
+            for c in contacts:
+                # getContactPoints retorna tupla; índices:
+                #   [1] = bodyA, [2] = bodyB, [9] = normalForce
+                body_a = int(c[1])
+                body_b = int(c[2])
+                force  = float(c[9])
+
+                # Normaliza par para chave consistente
+                pair = (min(body_a, body_b), max(body_a, body_b))
+                curr_contacts.add(pair)
+                pair_impulse[pair] = pair_impulse.get(pair, 0.0) + abs(force)
+
+        # Emite eventos apenas para pares que são NOVOS neste tick
+        new_pairs = curr_contacts - self._prev_contacts
+        for pair in new_pairs:
+            body_a, body_b = pair
+            impulse = pair_impulse.get(pair, 0.0)
+
+            # Classifica superfície
+            if body_a == self._floor_id or body_b == self._floor_id:
+                surface = Surface.FLOOR
+            elif body_a in self._wall_ids or body_b in self._wall_ids:
+                surface = Surface.WALL
+            elif body_a in dice_set and body_b in dice_set:
+                surface = Surface.DICE
+            else:
+                continue  # contato com objeto desconhecido — ignora
+
+            events.append(CollisionEvent(
+                body_a=body_a,
+                body_b=body_b,
+                surface=surface,
+                impulse=impulse,
+            ))
+
+        self._prev_contacts = curr_contacts
+        return events
 
     def step(self) -> None:
         for _ in range(SIM_SUBSTEPS):

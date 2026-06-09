@@ -240,6 +240,11 @@ def spawn_dice(
     """
     Cria e lança um conjunto de dados agrupados no fundo da bandeja.
 
+    Regra especial: cada d100 no spec adiciona automaticamente 1 d10 de
+    unidades pareado. O d10 parceiro é marcado com o atributo
+    ``dice.d100_partner = True`` para que a UI/app possa identificá-lo e
+    combinar os resultados (dezenas do d100 + unidades do d10).
+
     Preserva o efeito visual original de "dados lançados da borda":
       - Nasce em spawn_cluster_xz=(0, 3.5) — fundo da bandeja (+Z)
       - Arremessados em azimute 270° (−Z) = para dentro
@@ -252,8 +257,16 @@ def spawn_dice(
     if cfg is None:
         cfg = SpawnConfig()
 
+    # Expande o spec: cada d100 exige 1 d10 de unidades adicional
+    n_d100 = spec.get("d100", 0)
+    expanded_spec: dict[str, int] = {}
+    for dtype, count in spec.items():
+        expanded_spec[dtype] = count
+    if n_d100 > 0:
+        expanded_spec["d10"] = expanded_spec.get("d10", 0) + n_d100
+
     rng     = cfg.make_rng()
-    n_total = sum(spec.values())
+    n_total = sum(expanded_spec.values())
 
     positions_xz = _place_positions(
         n=n_total,
@@ -265,8 +278,11 @@ def spawn_dice(
     )
 
     dice_list: list[Dice] = []
+    # Rastreia quantos d10 "extras" (parceiros de d100) ainda faltam criar
+    d10_partners_remaining = n_d100
+
     i = 0
-    for dtype, count in spec.items():
+    for dtype, count in expanded_spec.items():
         for k in range(count):
             xz  = positions_xz[i]
             pos = (float(xz[0]), cfg.spawn_height, float(xz[1]))
@@ -276,13 +292,20 @@ def spawn_dice(
                 physics=physics,
                 name=f"{dtype}_{k+1}",
             )
-            # Reposiciona o dado para a posição calculada pelo cluster,
-            # sobrescrevendo a posição aleatória definida por add_dice.
-            import pybullet as pb
-            _, orn = pb.getBasePositionAndOrientation(
-                dice.body_id, physicsClientId=physics.client
-            )
-            
+            # Marca os d10 parceiros de d100 (os últimos d10_partners_remaining
+            # d10 criados são os parceiros, pois foram adicionados ao final)
+            if dtype == "d10" and d10_partners_remaining > 0:
+                # Verifica se este d10 é um dos parceiros adicionados
+                # Os parceiros são os últimos `n_d100` d10 criados neste dtype
+                original_d10 = spec.get("d10", 0)
+                if k >= original_d10:
+                    dice.d100_partner = True
+                    d10_partners_remaining -= 1
+                else:
+                    dice.d100_partner = False
+            else:
+                dice.d100_partner = False
+
             dice_list.append(dice)
             i += 1
 
