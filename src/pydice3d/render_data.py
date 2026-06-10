@@ -351,8 +351,8 @@ class DiceRenderData:
 
 
 def _choose_glyph_color(dice_type: str) -> tuple:
-    from pydice3d.renderer import DICE_COLORS, DEFAULT_DICE_COLOR, DICE_THEMES
-    # r, g, b = DICE_COLORS.get(dice_type, DEFAULT_DICE_COLOR)
+    from pydice3d.renderer import DEFAULT_DICE_COLOR, DICE_THEMES
+    
     r, g, b = DICE_THEMES.get("light", DEFAULT_DICE_COLOR)
     luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
     if luminance > 0.5:

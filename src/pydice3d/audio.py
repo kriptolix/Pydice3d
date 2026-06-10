@@ -363,9 +363,13 @@ class DiceAudioEngine:
         self._samples: dict[str, Optional[WavBuffer]] = {}
         self._load_assets(audio_dir)
 
-        # Pool de streams pré-abertos — inicializado lazy no primeiro uso
+        # Pool de streams pré-abertos — inicializado imediatamente para que os
+        # streams já estejam estabilizados quando a primeira colisão ocorrer.
+        # Inicialização lazy causava o descarte silencioso dos primeiros callbacks
+        # pelo PortAudio, resultando em ausência de som na primeira rolagem.
         self._slots:       list[_SoundSlot] = []
         self._slots_ready: bool = False
+        self._init_slots()
 
         # Cooldown por par de corpos: (id_menor, id_maior) → ticks restantes
         self._cooldown: dict[tuple[int, int], int] = {}
@@ -390,8 +394,17 @@ class DiceAudioEngine:
                 print(f"[audio] aviso: '{name}.wav' não encontrado em {audio_dir}")
             self._samples[name] = buf
 
-    def _ensure_slots(self) -> None:
-        """Cria o pool de slots na primeira chamada (lazy)."""
+    def _init_slots(self) -> None:
+        """
+        Inicializa o pool de _SoundSlot imediatamente após o carregamento dos
+        assets. Os streams ficam em standby (callback retorna zeros) até que
+        slot.play() seja chamado.
+
+        Chamado no __init__ — não lazy — para que o PortAudio tenha tempo de
+        estabilizar os buffers internos antes da primeira colisão. Com init
+        lazy os primeiros callbacks chegavam enquanto o driver ainda estava
+        inicializando e eram descartados silenciosamente.
+        """
         if self._slots_ready or not self.enabled:
             return
         try:
@@ -403,6 +416,11 @@ class DiceAudioEngine:
         except Exception as e:
             print(f"[audio] erro ao criar pool de streams: {e}")
             self.enabled = False
+
+    def _ensure_slots(self) -> None:
+        """Garante que o pool está pronto. No-op se já inicializado."""
+        if not self._slots_ready:
+            self._init_slots()
 
     # ── API principal ─────────────────────────────────────────────────────────
 

@@ -50,18 +50,6 @@ DICE_THEMES: dict[str, tuple[float, float, float]] = {
     "light":    (0.95, 0.95, 0.95),   # white
 }
 
-ACTUAL_THEME = "light"
-
-DICE_COLORS: dict[str, tuple[float, float, float]] = {
-    "d4":     (0.85, 0.25, 0.25),   # vermelho
-    "d6":     (0.25, 0.55, 0.90),   # azul
-    "d8":     (0.25, 0.75, 0.40),   # verde
-    "d10":    (0.90, 0.65, 0.15),   # laranja
-    "d12":    (0.15, 0.15, 0.15),   # roxo
-    "d20":    (0.95, 0.95, 0.95),   # branco/prata
-    "d100":   (0.90, 0.65, 0.15),   # laranja (par com d10)
-    "df": (0.20, 0.20, 0.20),   # quase preto
-}
 DEFAULT_DICE_COLOR = (0.7, 0.7, 0.7)
 
 # Escala visual por tipo — afeta apenas a aparência, não a colisão PyBullet
@@ -92,11 +80,10 @@ class DiceGpuObject:
         attr 3: face_idx  (float, offset 32)
     """
 
-    def __init__(self, rd: DiceRenderData, dice_type: str) -> None:
+    def __init__(self, rd: DiceRenderData, dice_type: str, theme: str = "light") -> None:
         self.dice_type   = dice_type
         self.n_indices   = rd.n_indices
-        # self.color       = DICE_COLORS.get(dice_type, DEFAULT_DICE_COLOR)
-        self.color       = DICE_THEMES.get(ACTUAL_THEME, DEFAULT_DICE_COLOR)
+        self.color       = DICE_THEMES.get(theme, DEFAULT_DICE_COLOR)
         self.glyph_color = rd.glyph_color
         self.face_glyphs = _pad_glyphs(rd.face_glyphs)   # sempre MAX_FACES ints
 
@@ -277,16 +264,18 @@ class Renderer:
         lighting:   Optional[LightingParams] = None,
         atlas_npy:  Optional[str] = None,
         atlas_json: Optional[dict] = None,
+        theme:      str = "light",
     ) -> None:
         self.lighting   = lighting or LightingParams()
         self.debug_mode = 0
+        self._theme     = theme
 
         self.dice_prog   = build_dice_program()
         self.ground_prog = build_ground_program()
 
         self.dice_gpu: list[DiceGpuObject] = []
         for rd, dtype in zip(scene.dice_renders, dice_types):
-            self.dice_gpu.append(DiceGpuObject(rd, dtype))
+            self.dice_gpu.append(DiceGpuObject(rd, dtype, self._theme))
 
         self.ground = GroundPlane()
 
@@ -376,6 +365,32 @@ class Renderer:
 
         gpu.draw()
 
+    # ── tema visual ──────────────────────────────────────────────────────
+
+    @property
+    def theme(self) -> str:
+        """Tema visual dos dados: 'light' (branco) ou 'dark' (preto)."""
+        return self._theme
+
+    @theme.setter
+    def theme(self, value: str) -> None:
+        """
+        Troca o tema e atualiza a cor de todos os objetos GPU já criados.
+
+        Não exige reload completo — apenas altera o atributo `color` de
+        cada DiceGpuObject, que é lido a cada draw call.
+
+        Exemplo::
+
+            renderer.theme = "dark"
+        """
+        if value not in DICE_THEMES:
+            raise ValueError(f"Tema inválido: {value!r}. Use: {list(DICE_THEMES)}")
+        self._theme = value
+        new_color = DICE_THEMES[value]
+        for gpu in self.dice_gpu:
+            gpu.color = new_color
+
     # ── reload e delete ──────────────────────────────────────────────
 
     def reload(self, scene: RenderScene, dice_types: list[str]) -> None:
@@ -384,7 +399,7 @@ class Renderer:
             gpu.delete()
         self.dice_gpu = []
         for rd, dtype in zip(scene.dice_renders, dice_types):
-            self.dice_gpu.append(DiceGpuObject(rd, dtype))
+            self.dice_gpu.append(DiceGpuObject(rd, dtype, self._theme))
 
     def delete(self) -> None:
         for gpu in self.dice_gpu:

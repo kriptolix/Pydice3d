@@ -26,11 +26,13 @@ from OpenGL import GL
 from pydice3d.simulation     import DiceSimulation
 from pydice3d.renderer       import Renderer
 from pydice3d.render_data    import RenderScene
+from pydice3d.roll_result    import RollResult
+ 
 from debug_wire import (
     CollisionWireframe, build_wire_program,
     DEBUG_NONE, DEBUG_COLLISION, DEBUG_OVERLAY,
 )
-from pydice3d.roll_result    import RollResult
+
 
 
 # ────────────────────────────────────────────────────────────────────────────

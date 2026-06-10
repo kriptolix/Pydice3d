@@ -289,6 +289,52 @@ class DiceSimulation:
         """Acesso direto ao PhysicsWorld (para usos avançados)."""
         return self._physics
 
+    # ── Áudio ─────────────────────────────────────────────────────────────────
+
+    @property
+    def audio_enabled(self) -> bool:
+        """True se o motor de áudio está ativo."""
+        return self.audio.enabled
+
+    @audio_enabled.setter
+    def audio_enabled(self, value: bool) -> None:
+        """
+        Liga ou desliga o áudio em tempo de execução.
+
+        Quando desligado, todos os sons em andamento são parados imediatamente
+        e nenhum novo som é gerado enquanto a simulação avança.
+
+        Exemplo::
+
+            sim.audio_enabled = False   # mudo
+            sim.audio_enabled = True    # religa
+        """
+        self.audio.enabled = bool(value)
+        if not self.audio.enabled:
+            self.audio.stop_all()
+
+    @property
+    def audio_volume(self) -> float:
+        """Volume global do áudio [0.0, 1.0]."""
+        return self.audio.master_volume
+
+    @audio_volume.setter
+    def audio_volume(self, value: float) -> None:
+        """
+        Ajusta o volume global do áudio sem desabilitar o motor.
+
+        O valor é aplicado imediatamente a todas as colisões e ao loop de
+        rolling dos próximos ticks. Sons já em reprodução não são afetados
+        (eles usam o volume fixado no momento do disparo).
+
+        Exemplo::
+
+            sim.audio_volume = 0.5    # metade do volume
+            sim.audio_volume = 0.0    # silencioso sem desligar o motor
+        """
+        import numpy as np
+        self.audio.master_volume = float(np.clip(value, 0.0, 1.0))
+
     # ── Câmera ───────────────────────────────────────────────────────────────
 
     def view_matrix(self) -> np.ndarray:

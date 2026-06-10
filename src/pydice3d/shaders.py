@@ -72,7 +72,7 @@ MAX_GLYPHS   = 34    # índices 0–33 (GLYPH_BLANK inclusive); 255=GLYPH_NONE f
 # d100 dezenas: 00→21, 10→22, ..., 90→30
 def glyph_d100(tens: int) -> int:
     """tens ∈ {0,10,20,...,90} → índice de glifo"""
-    return 21 + (tens // 10)
+    return 21 + ((tens % 100) // 10)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -157,9 +157,15 @@ float msdf_coverage(vec2 auv) {
     if (auv.x < 0.0) return 0.0;
     vec3  msd = texture(u_glyph_atlas, auv).rgb;
     float sd  = msdf_median(msd);
-    float screen_px_range = PX_RANGE
-        * length(vec2(dFdx(auv.x), dFdy(auv.y)))
-        * float(textureSize(u_glyph_atlas, 0).x);
+    // Jacobiano completo: mede quantos pixels de tela por pixel de atlas em
+    // ambas as direcoes UV. Usar so dFdx(auv.x)+dFdy(auv.y) subestima a
+    // magnitude quando ha rotacao/perspectiva, deixando as bordas esfumacadas.
+    // A media de largura e altura corrige atlas nao-quadrados.
+    vec2  atlas_size = vec2(textureSize(u_glyph_atlas, 0));
+    vec2  duv_dx     = vec2(dFdx(auv.x), dFdx(auv.y)) * atlas_size;
+    vec2  duv_dy     = vec2(dFdy(auv.x), dFdy(auv.y)) * atlas_size;
+    float screen_px_range = PX_RANGE * 0.5
+        * (length(duv_dx) + length(duv_dy));
     screen_px_range = max(screen_px_range, 1.0);
     return clamp((sd - 0.5) * screen_px_range + 0.5, 0.0, 1.0);
 }
@@ -174,11 +180,10 @@ vec2 digit_atlas_uv(vec2 uv, int digit, float offset_x, float x_scale, float y_s
     return vec2(mix(rect.x, rect.z, n.x), mix(rect.w, rect.y, n.y));
 }
 
-vec2 symbol_atlas_uv(vec2 uv, vec4 rect, float scale, float offset_v) {
+vec2 symbol_atlas_uv(vec2 uv, vec4 rect, float scale) {
     vec2 local = uv / scale;
     if (abs(local.x) > 1.0 || abs(local.y) > 1.0) return vec2(-1.0);
     vec2 n = local * 0.5 + 0.5;
-    n.y = clamp(n.y + offset_v * 0.5, 0.0, 1.0);
     return vec2(mix(rect.x, rect.z, n.x), mix(rect.y, rect.w, n.y));
 }
 
@@ -208,11 +213,11 @@ float glyph_coverage(vec2 uv, int glyph_id) {
         return max(msdf_coverage(lv), msdf_coverage(rv)) * edge_mask;
 
     } else if (glyph_id == 31) {
-        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_plus,  SINGLE_SCALE, 0.0);
+        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_plus,  SINGLE_SCALE);
         return msdf_coverage(auv) * edge_mask;
 
     } else if (glyph_id == 32) {
-        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_minus, SINGLE_SCALE * 0.7, -0.5);
+        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_minus, SINGLE_SCALE);
         return msdf_coverage(auv) * edge_mask;
     }
 
@@ -471,17 +476,26 @@ def _glyph_to_uv_rect(glyph: dict, atlas_w: float, atlas_h: float) -> "np.ndarra
     if half < 1e-7:
         return np.array([ab_u0, ab_v0, ab_u1, ab_v1], dtype=np.float32)
 
-    # Centro do planeBounds em fração normalizada
+    # Centro do glifo em coordenadas UV do atlas.
+    # cx_frac/cy_frac: posição do centro dentro do planeBounds (0..1).
     cx_frac = (pb_cx - pb["left"])   / pb_w
     cy_frac = (pb_cy - pb["bottom"]) / pb_h
 
-    # Centro em UV do atlas (Y já invertido: bottom→v1, top→v0)
     cx_uv = ab_u0 + cx_frac * ab_du
-    cy_uv = ab_v1 - cy_frac * ab_dv
+    cy_uv = ab_v1 - cy_frac * ab_dv   # Y invertido: bottom→v1, top→v0
 
-    # Escala: half EM → metade do tamanho em UV
-    half_u = half / pb_w * ab_du
-    half_v = half / pb_h * ab_dv
+    # half em EM (unidades do planeBounds) convertido para UV de forma
+    # UNIFORME em U e V — usa a razão (pixels de atlas) / (unidades EM)
+    # separadamente por eixo para preservar a proporção real do glifo.
+    #
+    # A versão anterior usava half/pb_w e half/pb_h como fatores, o que
+    # criava rects não-quadrados em UV para glifos estreitos ("1") ou
+    # largos ("-"), fazendo o shader esticar o glifo ao mapear de [-1,1]².
+    px_per_em_u = ab_du / pb_w   # pixels de atlas por unidade EM, eixo U
+    px_per_em_v = ab_dv / pb_h   # pixels de atlas por unidade EM, eixo V
+
+    half_u = half * px_per_em_u
+    half_v = half * px_per_em_v
 
     u0 = cx_uv - half_u;  u1 = cx_uv + half_u
     v0 = cy_uv - half_v;  v1 = cy_uv + half_v

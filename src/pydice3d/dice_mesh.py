@@ -178,54 +178,6 @@ def _build_d4() -> DiceMesh:
         face_values=(1, 2, 3, 4),
     )
 
-def _build_d4_beveled(bevel=0.15)-> DiceMesh:
-
-    """
-    Não esta em uso.
-    Cria um tetraedro chanfrado.
-    1. Mantém as faces originais
-    2. Adiciona vértices extras nas arestas
-    3. não reconstrói topologia perfeita
-    4. Usa convex hull do PyBullet    
-    """
-
-    a = 1.0 / np.sqrt(3)
-
-    corners = np.array([
-        [ a,  a,  a],
-        [-a, -a,  a],
-        [-a,  a, -a],
-        [ a, -a, -a],
-    ])
-
-    corners *= (1.0 - bevel)
-
-    edges = [
-        (0,1),
-        (0,2),
-        (0,3),
-        (1,2),
-        (1,3),
-        (2,3),
-    ]
-
-    edge_points = []
-
-    for i, j in edges:
-        midpoint = (corners[i] + corners[j]) * 0.5
-
-        midpoint = midpoint / np.linalg.norm(midpoint)
-
-        midpoint *= (1.0 - bevel * 0.5)
-
-        edge_points.append(midpoint)
-
-    vertices = np.vstack([
-        corners,
-        np.array(edge_points)
-    ])
-
-    return vertices
 
 def _build_d6(df=False) -> DiceMesh:
     """

@@ -14,7 +14,7 @@ import numpy as np
 
 # ── Localiza os arquivos ──────────────────────────────────────────────────────
 candidates = [
-    pathlib.Path("src/pydice3d/assets/atlas"),
+    pathlib.Path("../src/pydice3d/assets/atlas"),
     pathlib.Path("pydice3d/assets/atlas"),
     pathlib.Path("assets/atlas"),
 ]

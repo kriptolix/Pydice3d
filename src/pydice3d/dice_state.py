@@ -73,8 +73,11 @@ SETTLING_ANGULAR_THRESHOLD: float = 0.10   # rad/s
 SETTLING_FRAMES_REQUIRED: int = 20
 RESTING_FRAMES_REQUIRED:  int = 30
 
-# Altura máxima do centro do dado para aceitar RESTING (evita dado no ar).
-MAX_RESTING_HEIGHT: float = 1.5
+# Timeout de segurança: se o dado passou este número de frames acumulados em
+# SETTLING sem conseguir avançar para RESTING (caso típico: dado empilhado com
+# jitter de contato persistente do PyBullet), força RESTING mesmo assim.
+# Deve ser generoso o suficiente para não capturar dados genuinamente lentos.
+SETTLING_TIMEOUT_FRAMES: int = 180   # ~3 s a 60 Hz
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -116,6 +119,9 @@ class DiceState:
 
     _settling_frames: int = field(default=0, repr=False)
     _resting_frames:  int = field(default=0, repr=False)
+    # Contador acumulado de frames em SETTLING (não zera ao voltar para ROLLING).
+    # Usado pelo timeout para forçar RESTING em dados empilhados com jitter persistente.
+    _settling_total:  int = field(default=0, repr=False)
 
     # ── construtor semântico ─────────────────────────────────────────
 
@@ -155,8 +161,20 @@ class DiceState:
 
     def update_status(self) -> None:
         """
-        Atualiza ciclo de vida lendo velocidades do PyBullet.Também 
+        Atualiza ciclo de vida lendo velocidades do PyBullet. Também
         salva prev_orientation para interpolação do renderer.
+
+        Caso especial — dado empilhado sobre outro:
+        O PyBullet pode reportar jitter de contato persistente como
+        micro-velocidade, impedindo o avanço para RESTING. Dois mecanismos
+        cobrem isso:
+          1. A verificação de altura foi removida: um dado parado em cima de
+             outro é tão válido quanto um no chão — o critério de velocidade
+             já garante que ele não está no ar.
+          2. _settling_total acumula todos os frames em que o dado esteve com
+             velocidade abaixo do limiar. Quando esse total atinge
+             SETTLING_TIMEOUT_FRAMES o dado é forçado para RESTING,
+             independentemente de jitter residual.
         """
         if self.status == DiceStatus.RESTING:
             return
@@ -180,29 +198,33 @@ class DiceState:
             self.status           = DiceStatus.ROLLING
             self._settling_frames = 0
             self._resting_frames  = 0
+            # _settling_total não é zerado: conta tempo total com baixa velocidade,
+            # mesmo que intercalado com breves picos de jitter.
             return
 
+        # Dado abaixo dos limiares de movimento — acumula os dois contadores.
         self._settling_frames += 1
+        self._settling_total  += 1
 
         if self.status == DiceStatus.ROLLING:
             if self._settling_frames >= SETTLING_FRAMES_REQUIRED:
-                pos = self.dice.position
-                if pos[1] <= MAX_RESTING_HEIGHT:
-                    self.status          = DiceStatus.SETTLING
-                    self._resting_frames = 0
+                self.status          = DiceStatus.SETTLING
+                self._resting_frames = 0
             return
 
         if self.status == DiceStatus.SETTLING:
             self._resting_frames += 1
+            # Caminho normal: frames quietos consecutivos suficientes.
             if self._resting_frames >= RESTING_FRAMES_REQUIRED:
-                pos = self.dice.position
-                if pos[1] <= MAX_RESTING_HEIGHT:
-                    self.status = DiceStatus.RESTING
-                    self.result = self.top_face_value
-                else:
-                    self.status           = DiceStatus.ROLLING
-                    self._settling_frames = 0
-                    self._resting_frames  = 0
+                self.status = DiceStatus.RESTING
+                self.result = self.top_face_value
+                return
+            # Caminho de timeout: dado com jitter persistente (tipicamente
+            # empilhado). Aceita o resultado mesmo sem frames consecutivos
+            # suficientes.
+            if self._settling_total >= SETTLING_TIMEOUT_FRAMES:
+                self.status = DiceStatus.RESTING
+                self.result = self.top_face_value
 
     # ── conveniências ────────────────────────────────────────────────
 
