@@ -1,12 +1,17 @@
 """
 collision_wire.py – Wireframe de Colisão (Debug OpenGL)
 
-Responsabilidade: construir e renderizar o convex hull de colisão de um
-dado como linhas OpenGL (GL_LINES), sobreposto ou substituindo o mesh
-visual durante inspeção de física.
+Arquivo de desenvolvimento — pertence à camada GTK/frontend, não à lib core.
+Coloque junto com glarena.py e main.py.
 
-Pertence à camada OpenGL da lib — depende de PyOpenGL e scipy, mas não de
-GTK, Qt ou qualquer outro toolkit de janela.
+Responsabilidade: construir e renderizar o convex hull de colisão de um dado
+como GL_LINES, sobreposto ou substituindo o mesh visual durante inspeção.
+
+Diferença em relação à versão anterior
+────────────────────────────────────────
+Não usa mais scipy.spatial.ConvexHull. As arestas são extraídas diretamente
+do DiceMesh (que já tem a lista de faces hardcoded), eliminando o cálculo
+de hull em runtime e a dependência de scipy neste arquivo.
 
 Constantes de modo de debug
 ────────────────────────────
@@ -16,17 +21,11 @@ Constantes de modo de debug
 
 Uso
 ────
-    # Uma instância por dado, criada após contexto OpenGL ativo:
-    wire = CollisionWireframe("d20")
+    wire = CollisionWireframe("d20")          # após contexto GL ativo
+    wire.draw(mvp_matrix, wire_program)       # a cada frame
+    wire.delete()                             # ao destruir contexto
 
-    # A cada frame (dentro do loop de render):
-    wire.draw(mvp_matrix, wire_program)
-
-    # Ao destruir o contexto:
-    wire.delete()
-
-    # Compilar o programa de shader de wireframe:
-    prog = build_wire_program()
+    prog = build_wire_program()               # compila shader de wireframe
 """
 
 from __future__ import annotations
@@ -43,16 +42,14 @@ from pydice3d.shaders    import (
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Constantes de modo de debug (espelhadas aqui para evitar import circular
-# com glarena em projetos que usam só esta camada)
+# Constantes de debug
 # ────────────────────────────────────────────────────────────────────────────
 
 DEBUG_NONE      = 0
 DEBUG_COLLISION = 1
 DEBUG_OVERLAY   = 2
 
-# Cor padrão do wireframe — pode ser sobrescrita em draw()
-DEFAULT_WIRE_COLOR: tuple[float, float, float] = (0.0, 1.0, 0.3)   # verde neon
+DEFAULT_WIRE_COLOR: tuple[float, float, float] = (0.0, 1.0, 0.3)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -64,49 +61,46 @@ def build_wire_program() -> int:
     return build_program(WIRE_VERT, WIRE_FRAG)
 
 
-def _hull_edges(verts: np.ndarray) -> list[tuple[int, int]]:
-    """Extrai arestas únicas do convex hull de `verts` (N×3)."""
-    if len(verts) < 4:
-        return []
-    try:
-        from scipy.spatial import ConvexHull
-        hull     = ConvexHull(verts)
-        edge_set: set[tuple[int, int]] = set()
-        for simplex in hull.simplices:
-            for i in range(len(simplex)):
-                a, b = simplex[i], simplex[(i + 1) % len(simplex)]
-                edge_set.add((min(a, b), max(a, b)))
-        return list(edge_set)
-    except Exception:
-        return []
-
-
-def _box_verts(half: float) -> np.ndarray:
-    """8 cantos de um cubo centrado na origem com half-extent `half`."""
-    pts = []
-    for sx in (+1, -1):
-        for sy in (+1, -1):
-            for sz in (+1, -1):
-                pts.append([sx * half, sy * half, sz * half])
-    return np.array(pts, dtype=np.float32)
-
-
-def _collision_verts(dice_type: str) -> np.ndarray:
+def _mesh_edges(dice_type: str) -> tuple[np.ndarray, list[tuple[int, int]]]:
     """
-    Retorna os vértices do shape de colisão PyBullet para `dice_type`,
-    na mesma escala usada em PhysicsWorld._make_collision_shape.
+    Extrai vértices e arestas únicas do DiceMesh correspondente ao
+    collision shape usado em PhysicsWorld._make_collision_shape.
+
+    Não usa scipy — as faces já estão hardcoded no DiceMesh.
+    Cada aresta (i, j) aparece exatamente uma vez (i < j).
     """
     r = DICE_TARGET_SIZE * 1.1
-
-    if dice_type in ("d6", "df"):
-        # GEOM_BOX: halfExtents = DICE_TARGET_SIZE / 2
-        return _box_verts(DICE_TARGET_SIZE / 2.0)
-
     if dice_type in ("d10", "d100"):
-        r = DICE_TARGET_SIZE * 1.1 * 1.5   # mesmo fator aplicado em physics.py
+        r = DICE_TARGET_SIZE * 1.1 * 1.5
 
-    mesh = get_mesh(dice_type)
-    return (mesh.vertices * r).astype(np.float32)
+    mesh  = get_mesh(dice_type)
+    verts = (mesh.vertices * r).astype(np.float32)
+
+    edge_set: set[tuple[int, int]] = set()
+    for face in mesh.faces:
+        n = len(face)
+        for k in range(n):
+            a, b = int(face[k]), int(face[(k + 1) % n])
+            edge_set.add((min(a, b), max(a, b)))
+
+    return verts, list(edge_set)
+
+
+def _box_edges() -> tuple[np.ndarray, list[tuple[int, int]]]:
+    """Arestas do cubo de colisão usado para d6 e df."""
+    half = DICE_TARGET_SIZE / 2.0
+    verts = np.array([
+        [-half, -half, -half], [ half, -half, -half],
+        [ half,  half, -half], [-half,  half, -half],
+        [-half, -half,  half], [ half, -half,  half],
+        [ half,  half,  half], [-half,  half,  half],
+    ], dtype=np.float32)
+    edges = [
+        (0,1),(1,2),(2,3),(3,0),   # face -Z
+        (4,5),(5,6),(6,7),(7,4),   # face +Z
+        (0,4),(1,5),(2,6),(3,7),   # laterais
+    ]
+    return verts, edges
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -115,37 +109,37 @@ def _collision_verts(dice_type: str) -> np.ndarray:
 
 class CollisionWireframe:
     """
-    Renderiza o convex hull de colisão de um dado como wireframe GL_LINES.
+    Renderiza as arestas do collision shape de um dado como GL_LINES.
 
-    O VAO/VBO é construído de forma lazy na primeira chamada a draw(),
-    garantindo que o contexto OpenGL já esteja ativo nesse momento.
+    O VAO/VBO é construído lazy na primeira draw(), garantindo que o
+    contexto OpenGL já esteja ativo nesse momento.
 
     Parâmetros
     ----------
-    dice_type : tipo do dado ("d6", "d20", etc.) — determina a geometria
-                de colisão usada, espelhando PhysicsWorld._make_collision_shape.
+    dice_type : tipo do dado — determina a geometria de colisão,
+                espelhando PhysicsWorld._make_collision_shape.
     """
 
     def __init__(self, dice_type: str) -> None:
         self.dice_type = dice_type
         self._vao:     int  = 0
         self._vbo:     int  = 0
-        self._n_lines: int  = 0
+        self._n_verts: int  = 0
         self._built:   bool = False
 
-    # ── construção lazy do VAO ───────────────────────────────────────────────
-
     def _build(self) -> None:
-        """Constrói VAO/VBO. Chamado automaticamente na primeira draw()."""
         if self._built:
             return
 
-        verts = _collision_verts(self.dice_type)
-        edges = _hull_edges(verts)
+        if self.dice_type in ("d6", "df"):
+            verts, edges = _box_edges()
+        else:
+            verts, edges = _mesh_edges(self.dice_type)
+
         if not edges:
             return
 
-        # Buffer de linhas: cada aresta = 2 vértices × 3 floats
+        # Cada aresta = 2 vértices
         line_buf = np.array(
             [[verts[i], verts[j]] for i, j in edges],
             dtype=np.float32,
@@ -156,18 +150,14 @@ class CollisionWireframe:
 
         self._vbo = GL.glGenBuffers(1)
         GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._vbo)
-        GL.glBufferData(
-            GL.GL_ARRAY_BUFFER, line_buf.nbytes,
-            line_buf.tobytes(), GL.GL_STATIC_DRAW,
-        )
-        GL.glVertexAttribPointer(
-            0, 3, GL.GL_FLOAT, GL.GL_FALSE, 12,
-            GL.ctypes.c_void_p(0),
-        )
+        GL.glBufferData(GL.GL_ARRAY_BUFFER, line_buf.nbytes,
+                        line_buf.tobytes(), GL.GL_STATIC_DRAW)
+        GL.glVertexAttribPointer(0, 3, GL.GL_FLOAT, GL.GL_FALSE, 12,
+                                  GL.ctypes.c_void_p(0))
         GL.glEnableVertexAttribArray(0)
         GL.glBindVertexArray(0)
 
-        self._n_lines = len(edges) * 2   # 2 vértices por aresta
+        self._n_verts = len(line_buf)
         self._built   = True
 
     # ── API pública ──────────────────────────────────────────────────────────
@@ -178,25 +168,16 @@ class CollisionWireframe:
         program: int,
         color:   tuple[float, float, float] = DEFAULT_WIRE_COLOR,
     ) -> None:
-        """
-        Renderiza o wireframe com a matriz MVP fornecida.
-
-        Parâmetros
-        ----------
-        mvp     : matriz 4×4 float32 Model-View-Projection.
-        program : programa GLSL compilado por build_wire_program().
-        color   : cor RGB do wireframe (padrão: verde neon).
-        """
         if not self._built:
             self._build()
-        if not self._built or self._n_lines == 0:
+        if not self._built or self._n_verts == 0:
             return
 
         GL.glUseProgram(program)
         set_uniform_mat4(program, "u_mvp",   mvp)
         set_uniform_vec3(program, "u_color", color)
         GL.glBindVertexArray(self._vao)
-        GL.glDrawArrays(GL.GL_LINES, 0, self._n_lines)
+        GL.glDrawArrays(GL.GL_LINES, 0, self._n_verts)
         GL.glBindVertexArray(0)
 
     def delete(self) -> None:

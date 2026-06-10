@@ -28,7 +28,6 @@ from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
 from typing import Literal
-from scipy.spatial import ConvexHull
 
 DiceType = Literal["d4", "d6", "d8", "d10", "d12", "d20", "d100", "df"]
 ALL_DICE: tuple[DiceType, ...] = ("d4", "d6", "d8", "d10", "d12", "d20", "d100", "df")
@@ -253,97 +252,16 @@ def _build_d6(df=False) -> DiceMesh:
     normals = _compute_normals(vertices, faces)
     
     if df:
-        # Faces na mesma ordem que FUDGE_GLYPHS: +1, +1, -1, -1, 0, 0
-        # +Z→+1, -Z→+1, -Y→-1, +Y→-1, +X→0, -X→0
         return DiceMesh(
             dice_type="df",
             vertices=vertices,
             faces=tuple(tuple(f) for f in faces),
             normals=normals,
-            face_values=(1, 1, -1, -1, 0, 0),
+            face_values=(-1, +1, 0, 0, -1, +1),
         )
 
     return DiceMesh(
         dice_type="d6",
-        vertices=vertices,
-        faces=tuple(tuple(f) for f in faces),
-        normals=normals,
-        face_values=(1, 6, 2, 5, 3, 4),
-    )
-
-def _build_d6_beveled(bevel=0.18) -> DiceMesh:
-    """
-    Não esta em uso.
-    """
-    
-
-    a = 1.0 / np.sqrt(3)
-
-    # vértices do cubo
-    corners = np.array([
-        [-a, -a, -a],
-        [ a, -a, -a],
-        [ a,  a, -a],
-        [-a,  a, -a],
-
-        [-a, -a,  a],
-        [ a, -a,  a],
-        [ a,  a,  a],
-        [-a,  a,  a],
-    ], dtype=np.float64)
-
-    # encolhe os cantos
-    corners *= (1.0 - bevel)
-
-    # 12 arestas do cubo
-    edges = [
-        (0,1), (1,2), (2,3), (3,0),
-        (4,5), (5,6), (6,7), (7,4),
-        (0,4), (1,5), (2,6), (3,7),
-    ]
-
-    edge_points = []
-
-    for i, j in edges:
-
-        midpoint = (corners[i] + corners[j]) * 0.5
-
-        # projeta para esfera/cubo arredondado
-        midpoint /= np.linalg.norm(midpoint)
-
-        midpoint *= a * (1.0 - bevel * 0.3)
-
-        edge_points.append(midpoint)
-
-    # centros das faces
-    face_centers = np.array([
-        [0, 0,  a],   # +Z
-        [0, 0, -a],   # -Z
-        [0, -a, 0],   # -Y
-        [0,  a, 0],   # +Y
-        [ a, 0, 0],   # +X
-        [-a, 0, 0],   # -X
-    ], dtype=np.float64)
-
-    face_centers *= (1.0 - bevel * 0.15)
-
-    vertices = np.vstack([
-        corners,
-        np.array(edge_points),
-        face_centers,
-    ])
-
-    # convex hull simples
-    hull = ConvexHull(vertices)
-
-    faces = hull.simplices.tolist()
-
-    faces = _ensure_outward_normals(vertices, faces)
-
-    normals = _compute_normals(vertices, faces)
-
-    return DiceMesh(
-        dice_type="d6_beveled",
         vertices=vertices,
         faces=tuple(tuple(f) for f in faces),
         normals=normals,
@@ -450,14 +368,12 @@ def _build_d10(d100=False) -> DiceMesh:
     normals = _compute_normals(vertices, [list(f) for f in faces_raw])
     
     if d100:
-        # face_values são as dezenas: 0 representa "00", 10→"10", ..., 90→"90"
-        # glyph_d100(v) = 21 + v//10, portanto v=0→glifo 21 ("00"), v=90→glifo 30 ("90")
         return DiceMesh(
             dice_type="d100",
             vertices=vertices,
             faces=tuple(faces_raw),
             normals=normals,
-            face_values=(0, 10, 20, 30, 40, 50, 60, 70, 80, 90),
+            face_values=(10, 20, 30, 40, 50, 60, 70, 80, 90, 100),
         )
 
     return DiceMesh(
@@ -473,73 +389,58 @@ def _build_d12() -> DiceMesh:
     Dodecaedro regular — d12.
     20 vértices, 12 faces pentagonais regulares.
     V=20, F=12, E=30 → Euler=2.
+
+    Vértices e faces hardcoded — elimina dependência de scipy em runtime.
+    Derivados das três classes de simetria do dodecaedro (±1,±1,±1),
+    (0, ±1/φ, ±φ) e permutações cíclicas, normalizados para raio unitário.
     """
     phi = (1.0 + np.sqrt(5.0)) / 2.0
     inv = 1.0 / phi
 
-    # Vértices do dodecaedro regular (3 classes de simetria)
-    raw = []
-    for sx in (1, -1):
-        for sy in (1, -1):
-            for sz in (1, -1):
-                raw.append([sx, sy, sz])
-    for s1 in (1, -1):
-        for s2 in (1, -1):
-            raw.append([0,   s1 * inv, s2 * phi])
-            raw.append([s1 * inv, s2 * phi,   0])
-            raw.append([s2 * phi,   0, s1 * inv])
+    # 20 vértices em três classes de simetria
+    raw = np.array([
+        # Classe 1: (±1, ±1, ±1)
+        [ 1,  1,  1], [-1,  1,  1], [ 1, -1,  1], [-1, -1,  1],
+        [ 1,  1, -1], [-1,  1, -1], [ 1, -1, -1], [-1, -1, -1],
+        # Classe 2: (0, ±1/φ, ±φ)
+        [ 0,  inv,  phi], [ 0, -inv,  phi],
+        [ 0,  inv, -phi], [ 0, -inv, -phi],
+        # Classe 3: (±1/φ, ±φ, 0)
+        [ inv,  phi, 0], [-inv,  phi, 0],
+        [ inv, -phi, 0], [-inv, -phi, 0],
+        # Classe 4: (±φ, 0, ±1/φ)
+        [ phi, 0,  inv], [ phi, 0, -inv],
+        [-phi, 0,  inv], [-phi, 0, -inv],
+    ], dtype=np.float64)
 
-    vertices = np.array(raw, dtype=float)
-    vertices -= vertices.mean(axis=0)
-    vertices /= np.max(np.linalg.norm(vertices, axis=1))
+    # Normaliza para raio unitário
+    raw -= raw.mean(axis=0)
+    raw /= np.max(np.linalg.norm(raw, axis=1))
 
-    # Extrai as 12 faces pentagonais por agrupamento de normais do hull convexo
-    from scipy.spatial import ConvexHull as _CH
-    hull = _CH(vertices)
-    areas, normals_list = [], []
-    for tri in hull.simplices:
-        a, b, c = vertices[tri[0]], vertices[tri[1]], vertices[tri[2]]
-        cross = np.cross(b - a, c - a)
-        nm = np.linalg.norm(cross)
-        if nm < 1e-12: continue
-        areas.append(nm / 2)
-        normals_list.append(cross / nm)
+    # 12 faces pentagonais hardcoded (winding CCW visto de fora)
+    # Obtidas uma única vez via ConvexHull e agora fixas — o dodecaedro
+    # é determinístico dado estes vértices na mesma ordem.
+    faces = [
+        [0,  8,  9,  2, 16],
+        [0, 12, 13,  1,  8],
+        [0, 16, 17,  4, 12],
+        [1, 13,  5, 19, 18],
+        [1, 18,  3,  9,  8],
+        [2,  9,  3, 15, 14],
+        [2, 14,  6, 17, 16],
+        [3, 18, 19,  7, 15],
+        [4, 10,  5, 13, 12],
+        [4, 17,  6, 11, 10],
+        [5, 10, 11,  7, 19],
+        [6, 14, 15,  7, 11],
+    ]
 
-    groups = []
-    used = [False] * len(normals_list)
-    for i in range(len(normals_list)):
-        if used[i]: continue
-        g = {'area': areas[i], 'normal': normals_list[i].copy()}
-        used[i] = True
-        for j in range(i + 1, len(normals_list)):
-            if not used[j] and np.dot(normals_list[i], normals_list[j]) > 0.999:
-                g['area'] += areas[j]; used[j] = True
-        groups.append(g)
-    groups.sort(key=lambda g: g['area'], reverse=True)
-    face_normals = [g['normal'] for g in groups[:12]]
+    faces = _ensure_outward_normals(raw, faces)
+    normals = _compute_normals(raw, faces)
 
-    faces = []
-    for n_ in face_normals:
-        projs = vertices @ n_
-        tol = (projs.max() - projs.min()) * 0.001 + 1e-8
-        idx = np.where(projs >= projs.max() - tol)[0]
-        if len(idx) < 3: continue
-        fv = vertices[idx]; center = fv.mean(0)
-        u = fv[0] - center
-        if np.linalg.norm(u) < 1e-10: u = fv[1] - center
-        u /= np.linalg.norm(u)
-        w = np.cross(n_, u)
-        angles = [np.arctan2(np.dot(p - center, w), np.dot(p - center, u)) for p in fv]
-        oi = idx[np.argsort(angles)]
-        if np.dot(np.cross(vertices[oi[1]] - vertices[oi[0]],
-                           vertices[oi[2]] - vertices[oi[0]]), n_) < 0:
-            oi = oi[::-1]
-        faces.append(list(oi))
-
-    normals = _compute_normals(vertices, faces)
     return DiceMesh(
         dice_type="d12",
-        vertices=vertices,
+        vertices=raw,
         faces=tuple(tuple(f) for f in faces),
         normals=normals,
         face_values=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
@@ -550,39 +451,38 @@ def _build_d20() -> DiceMesh:
     Icosaedro regular — d20.
     12 vértices, 20 faces triangulares equiláteras.
     V=12, F=20, E=30 → Euler=2.
+
+    Vértices e faces hardcoded — elimina dependência de scipy em runtime.
+    Os 12 vértices são os cantos de três retângulos áureos ortogonais
+    (proporção φ = golden ratio), normalizados para raio unitário.
     """
     phi = (1.0 + np.sqrt(5.0)) / 2.0
 
-    # 12 vértices: 3 retângulos áureos ortogonais
-    raw = []
-    for s1 in (1, -1):
-        for s2 in (1, -1):
-            raw.append([0,  s1,       s2 * phi])
-            raw.append([s1, s2 * phi, 0       ])
-            raw.append([s2 * phi, 0,  s1      ])
+    # 12 vértices: três retângulos áureos ortogonais
+    raw = np.array([
+        [ 0,  1,  phi], [ 0, -1,  phi], [ 0,  1, -phi], [ 0, -1, -phi],
+        [ 1,  phi,  0], [-1,  phi,  0], [ 1, -phi,  0], [-1, -phi,  0],
+        [ phi,  0,  1], [ phi,  0, -1], [-phi,  0,  1], [-phi,  0, -1],
+    ], dtype=np.float64)
 
-    vertices = np.array(raw, dtype=float)
-    vertices -= vertices.mean(axis=0)
-    vertices /= np.max(np.linalg.norm(vertices, axis=1))
+    raw -= raw.mean(axis=0)
+    raw /= np.max(np.linalg.norm(raw, axis=1))
 
-    # Convex hull de 12 pontos = 20 faces triangulares
-    from scipy.spatial import ConvexHull as _CH
-    hull = _CH(vertices)
-    center = vertices.mean(axis=0)
-    faces = []
-    for tri in hull.simplices:
-        a, b, c = vertices[tri[0]], vertices[tri[1]], vertices[tri[2]]
-        n_ = np.cross(b - a, c - a)
-        fc = np.array([a, b, c]).mean(0)
-        tri_list = list(tri)
-        if np.dot(n_, fc - center) < 0:
-            tri_list = [tri_list[0], tri_list[2], tri_list[1]]
-        faces.append(tri_list)
+    # 20 faces triangulares hardcoded (winding CCW visto de fora)
+    # Derivadas da topologia canônica do icosaedro.
+    faces = [
+        [ 0,  1,  8], [ 0,  8,  4], [ 0,  4,  5], [ 0,  5, 10], [ 0, 10,  1],
+        [ 3,  2,  9], [ 3,  9,  6], [ 3,  6,  7], [ 3,  7, 11], [ 3, 11,  2],
+        [ 1,  6,  8], [ 8,  6,  9], [ 8,  9,  4], [ 4,  9,  2], [ 4,  2,  5],
+        [ 5,  2, 11], [ 5, 11, 10], [10, 11,  7], [10,  7,  1], [ 1,  7,  6],
+    ]
 
-    normals = _compute_normals(vertices, faces)
+    faces = _ensure_outward_normals(raw, faces)
+    normals = _compute_normals(raw, faces)
+
     return DiceMesh(
         dice_type="d20",
-        vertices=vertices,
+        vertices=raw,
         faces=tuple(tuple(f) for f in faces),
         normals=normals,
         face_values=tuple(range(1, 21)),

@@ -4,25 +4,11 @@ glarena.py – GTK4 GLArea: integração entre GTK e DiceSimulation
 Responsabilidade: conectar os sinais do ciclo de vida GTK/GL
 (realize / unrealize / render / resize) ao DiceSimulation e ao Renderer.
 
-Esta classe não conhece física, câmera, estados de dados nem spawning.
-Todo esse conhecimento vive em DiceSimulation. O que fica aqui é
-exclusivamente o que o GTK exige:
-
-  - make_current() antes de qualquer chamada OpenGL
-  - queue_render() para forçar reframe
-  - grab_focus() para receber eventos de teclado
-  - Carregar assets (atlas PNG/JSON) no realize, onde o contexto GL existe
-
 Modos de debug
 ──────────────
   DEBUG_NONE      : renderização normal
   DEBUG_COLLISION : só wireframe do hull de colisão (sem mesh visual)
   DEBUG_OVERLAY   : mesh visual + wireframe de colisão sobrepostos
-
-Importações
-───────────
-  Antes da refatoração : 10 imports do núcleo da lib
-  Depois               :  3 imports (DiceSimulation, Renderer, collision_wire)
 """
 
 from __future__ import annotations
@@ -40,7 +26,7 @@ from OpenGL import GL
 from pydice3d.simulation     import DiceSimulation
 from pydice3d.renderer       import Renderer
 from pydice3d.render_data    import RenderScene
-from pydice3d.collision_wire import (
+from debug_wire import (
     CollisionWireframe, build_wire_program,
     DEBUG_NONE, DEBUG_COLLISION, DEBUG_OVERLAY,
 )
@@ -51,10 +37,9 @@ from pydice3d.roll_result    import RollResult
 # Caminhos dos assets (pertencem à camada GTK: só aqui sabe onde estão)
 # ────────────────────────────────────────────────────────────────────────────
 
-_ATLAS_DIR        = files("pydice3d.assets").joinpath("atlas")
-_ATLAS_PNG        = str(_ATLAS_DIR.joinpath("atlas.png"))
-_ATLAS_NORMAL_PNG = str(_ATLAS_DIR.joinpath("atlas_normal.png"))
-_ATLAS_JSON       = _ATLAS_DIR.joinpath("atlas.json")
+_ATLAS_DIR  = files("pydice3d.assets").joinpath("atlas")
+_ATLAS_NPY  = str(_ATLAS_DIR.joinpath("atlas.npy"))
+_ATLAS_JSON = _ATLAS_DIR.joinpath("atlas.json")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -153,8 +138,7 @@ class DiceGLArea(Gtk.GLArea):
         self._scene    = RenderScene([])
         self._renderer = Renderer(
             self._scene, [],
-            atlas_png=_ATLAS_PNG,
-            atlas_normal_png=_ATLAS_NORMAL_PNG,
+            atlas_npy=_ATLAS_NPY,
             atlas_json=self._atlas_json,
         )
 
@@ -242,8 +226,7 @@ class DiceGLArea(Gtk.GLArea):
         if self._renderer is None:
             self._renderer = Renderer(
                 self._scene, dice_types,
-                atlas_png=_ATLAS_PNG,
-                atlas_normal_png=_ATLAS_NORMAL_PNG,
+                atlas_npy=_ATLAS_NPY,
                 atlas_json=self._atlas_json,
             )
         else:

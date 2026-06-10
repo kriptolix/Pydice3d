@@ -195,41 +195,42 @@ class GroundPlane:
 # Carregamento da atlas de glifos
 # ────────────────────────────────────────────────────────────────────────────
 
-def _load_atlas_texture(png_path: str) -> int:
+def _load_atlas_texture(npy_path: str) -> int:
     """
-    Carrega um PNG como textura OpenGL RGBA e retorna o ID da textura.
+    Carrega um atlas de glifos a partir de um arquivo .npy e cria uma
+    textura OpenGL RGBA.
 
-    Usa PIL/Pillow para decodificar o PNG. A textura é configurada com
-    filtragem linear (GL_LINEAR) para suavização ao escalar os glifos.
+    O array deve ter shape (H, W, 4) dtype uint8 — exatamente o que
+    numpy.save produz ao exportar uma imagem RGBA. Não requer Pillow.
+
+    A textura é configurada sem mipmaps: MSDF é projetado para funcionar
+    em escala linear; mipmaps introduzem artefatos nas bordas SDF ao
+    misturar canais R, G, B independentemente.
     """
-    try:
-        from PIL import Image
-        import numpy as np
-    except ImportError as e:
+    import numpy as np
+
+    img_data = np.load(npy_path)
+    if img_data.ndim != 3 or img_data.shape[2] != 4:
         raise RuntimeError(
-            "Pillow é necessário para carregar a atlas de glifos. "
-            "Instale com: pip install Pillow"
-        ) from e
-
-    img = Image.open(png_path).convert("RGBA")
-    img_data = np.array(img, dtype=np.uint8)
-
-    # img_data = np.load("textures_npy/minha_textura.npy")
+            f"atlas.npy deve ter shape (H, W, 4) uint8, "
+            f"recebido: {img_data.shape} {img_data.dtype}"
+        )
+    img_data = np.ascontiguousarray(img_data, dtype=np.uint8)
+    h, w = img_data.shape[:2]
 
     tex_id = GL.glGenTextures(1)
     GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
-    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR)
+    # MSDF: sem mipmaps, filtragem linear simples
+    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
     GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
     GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
     GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
-    h, w = img_data.shape[:2]
     GL.glTexImage2D(
         GL.GL_TEXTURE_2D, 0, GL.GL_RGBA,
         w, h, 0,
         GL.GL_RGBA, GL.GL_UNSIGNED_BYTE,
         img_data.tobytes(),
     )
-    GL.glGenerateMipmap(GL.GL_TEXTURE_2D)
     GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
     return tex_id
 
@@ -271,15 +272,14 @@ class Renderer:
 
     def __init__(
         self,
-        scene:           RenderScene,
-        dice_types:      list[str],
-        lighting:        Optional[LightingParams] = None,
-        atlas_png:       Optional[str] = None,
-        atlas_json:      Optional[dict] = None,
-        atlas_normal_png: Optional[str] = None,
+        scene:      RenderScene,
+        dice_types: list[str],
+        lighting:   Optional[LightingParams] = None,
+        atlas_npy:  Optional[str] = None,
+        atlas_json: Optional[dict] = None,
     ) -> None:
         self.lighting   = lighting or LightingParams()
-        self.debug_mode = 0   # 0=none, 1=collision, 2=overlay — controla highlight
+        self.debug_mode = 0
 
         self.dice_prog   = build_dice_program()
         self.ground_prog = build_ground_program()
@@ -290,20 +290,15 @@ class Renderer:
 
         self.ground = GroundPlane()
 
-        # ── Atlas de glifos (diffuse) ────────────────────────────────────
-        self._atlas_tex:    int = 0
-        self._normal_tex:   int = 0
-        self._glyph_uvs:    Optional[np.ndarray] = None
-        self._uv_plus:      Optional[np.ndarray] = None
-        self._uv_minus:     Optional[np.ndarray] = None
+        self._atlas_tex:  int = 0
+        self._glyph_uvs:  Optional[np.ndarray] = None
+        self._uv_plus:    Optional[np.ndarray] = None
+        self._uv_minus:   Optional[np.ndarray] = None
 
-        if atlas_png and atlas_json:
-            self._atlas_tex = _load_atlas_texture(atlas_png)
+        if atlas_npy and atlas_json:
+            self._atlas_tex = _load_atlas_texture(atlas_npy)
             self._glyph_uvs = build_glyph_uv_table(atlas_json)
             self._uv_plus, self._uv_minus = build_symbol_uvs(atlas_json)
-
-        if atlas_normal_png:
-            self._normal_tex = _load_atlas_texture(atlas_normal_png)
 
         GL.glEnable(GL.GL_DEPTH_TEST)
         GL.glDepthFunc(GL.GL_LEQUAL)
@@ -346,17 +341,11 @@ class Renderer:
         set_uniform_float(self.dice_prog, "u_shininess",   self.lighting.shininess)
         set_uniform_vec3(self.dice_prog,  "u_cam_pos",     cam_pos)
 
-        # Atlas diffuse — unidade de textura 0
+        # Atlas MSDF — unidade de textura 0
         if self._atlas_tex:
             GL.glActiveTexture(GL.GL_TEXTURE0)
             GL.glBindTexture(GL.GL_TEXTURE_2D, self._atlas_tex)
             set_uniform_int(self.dice_prog, "u_glyph_atlas", 0)
-
-        # Atlas normal map — unidade de textura 1
-        if self._normal_tex:
-            GL.glActiveTexture(GL.GL_TEXTURE1)
-            GL.glBindTexture(GL.GL_TEXTURE_2D, self._normal_tex)
-            set_uniform_int(self.dice_prog, "u_glyph_normal", 1)
 
         # Tabela de UV dos dígitos e símbolos
         if self._glyph_uvs is not None:
@@ -401,9 +390,8 @@ class Renderer:
         for gpu in self.dice_gpu:
             gpu.delete()
         self.ground.delete()
-        for tex in (self._atlas_tex, self._normal_tex):
-            if tex:
-                GL.glDeleteTextures(1, [tex])
-        self._atlas_tex = self._normal_tex = 0
+        if self._atlas_tex:
+            GL.glDeleteTextures(1, [self._atlas_tex])
+        self._atlas_tex = 0
         GL.glDeleteProgram(self.dice_prog)
         GL.glDeleteProgram(self.ground_prog)

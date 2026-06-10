@@ -7,24 +7,6 @@ Responsabilidade: criar e lançar um conjunto de dados com:
   - Separação mínima garantida ao nascer (evita explosões de contato)
   - Velocidades e torques iniciais variados (movimento natural)
   - Seed opcional para reprodutibilidade
-
-Correções v2 (sem regressão de comportamento)
-─────────────────────────────────────────────
-O efeito de "lançado da borda" é PRESERVADO: spawn_cluster_xz=(0.0, 3.5)
-mantém os dados nascendo no fundo (+Z) e o azimute 270° os arremessa para
-dentro (−Z). O que foi corrigido:
-
-  1. Velocidade vertical (vy): antes calculada como speed*sin(elev) podia
-     chegar a 4.5 m/s. Agora é limitada a vy_max=1.0 m/s, desacoplada da
-     velocidade horizontal. O efeito visual de arco é preservado mas sem
-     energia suficiente para escalar as paredes após ricochete.
-
-  2. speed_max: reduzido de 7.0 → 5.5 m/s para que o impulso horizontal
-     não projete dados contra a parede oposta com força de ricochete excessiva.
-
-  3. Separação mínima: a lógica _place_positions original é mantida intacta.
-     O cluster_radius é levemente aumentado (1.5→2.0) para que a separação
-     mínima (2.2m) seja atingida com menos tentativas quando há muitos dados.
 """
 
 from __future__ import annotations
