@@ -44,8 +44,8 @@ import numpy as np
 from pydice3d.physics    import PhysicsWorld
 from pydice3d.dice_state import DiceState
 from pydice3d.spawner    import spawn_dice, SpawnConfig
-from pydice3d.roll_result import RollMonitor, RollResult
-from pydice3d.camera     import look_at, perspective
+from pydice3d.results import RollMonitor, RollResult
+from pydice3d.camera     import look_at, perspective, Camera
 from pydice3d.audio      import DiceAudioEngine
 
 if TYPE_CHECKING:
@@ -100,6 +100,7 @@ class DiceSimulation:
         self.audio = DiceAudioEngine()
 
         # Camera
+        self._camera = Camera()
         self._cam_eye    = _DEFAULT_CAM_EYE.copy()
         self._cam_center = _DEFAULT_CAM_CENTER.copy()
         self._cam_up     = _DEFAULT_CAM_UP.copy()
@@ -327,7 +328,7 @@ class DiceSimulation:
         import numpy as np
         self.audio.master_volume = float(np.clip(value, 0.0, 1.0))
 
-    # ── Câmera ───────────────────────────────────────────────────────────────
+    # ── Camera ───────────────────────────────────────────────────────────────
 
     def view_matrix(self) -> np.ndarray:
         """Matriz view 4×4 float32 (look-at)."""

@@ -28,8 +28,7 @@ from typing import Optional
 
 from OpenGL import GL
 
-from pydice3d.camera import FixedCamera, OrbitalCamera
-from pydice3d.render_data import RenderScene, DiceRenderData
+from pydice3d.scene import RenderScene, DiceRenderData
 from pydice3d.dice_mesh import DICE_THEMES, DEFAULT_DICE_COLOR
 from pydice3d.shaders import (
     build_dice_program, build_ground_program,
@@ -40,14 +39,6 @@ from pydice3d.shaders import (
     build_glyph_uv_table, build_symbol_uvs,
     MAX_FACES, GLYPH_NONE,
 )
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# Cores e escalas visuais por tipo de dado
-# ────────────────────────────────────────────────────────────────────────────
-
-# DICE_THEMES e DEFAULT_DICE_COLOR vivem em dice_mesh.py (camada de domínio)
-# e são reexportados aqui para compatibilidade com imports externos.
 
 # Escala visual por tipo — afeta apenas a aparência, não a colisão PyBullet
 DICE_VISUAL_SCALE: dict[str, float] = {
@@ -80,7 +71,7 @@ class DiceGpuObject:
     def __init__(self, rd: DiceRenderData, dice_type: str, theme: str = "light") -> None:
         self.dice_type   = dice_type
         self.n_indices   = rd.n_indices
-        self.color       = DICE_THEMES.get(theme, DEFAULT_DICE_COLOR)
+        self.color       = DICE_THEMES[theme].dice_color if theme in DICE_THEMES else DEFAULT_DICE_COLOR
         self.glyph_color = rd.glyph_color
         self.face_glyphs = _pad_glyphs(rd.face_glyphs)   # sempre MAX_FACES ints
 
@@ -219,15 +210,13 @@ def _load_atlas_texture(npy_path: str) -> int:
     return tex_id
 
 
-
-
 @dataclass
 class LightingParams:
     light_dir:   np.ndarray = field(
         default_factory=lambda: np.array([0.6, 1.0, 0.8], dtype=np.float32)
     )
     light_color: tuple = (1.0, 0.97, 0.90)
-    shininess:   float = 64.0   # ambient removido — hemispheric lighting no shader
+    shininess:   float = 64.0   
 
     def normalized_dir(self) -> np.ndarray:
         d = np.asarray(self.light_dir, dtype=float)
@@ -384,9 +373,10 @@ class Renderer:
         if value not in DICE_THEMES:
             raise ValueError(f"Tema inválido: {value!r}. Use: {list(DICE_THEMES)}")
         self._theme = value
-        new_color = DICE_THEMES[value]
+        theme = DICE_THEMES[value]
         for gpu in self.dice_gpu:
-            gpu.color = new_color
+            gpu.color       = theme.dice_color
+            gpu.glyph_color = theme.glyph_color
 
     # ── reload e delete ──────────────────────────────────────────────
 

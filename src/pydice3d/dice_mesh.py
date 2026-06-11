@@ -38,9 +38,15 @@ ALL_DICE: tuple[DiceType, ...] = ("d4", "d6", "d8", "d10", "d12", "d20", "d100",
 # renderer.py para não quebrar imports externos existentes.
 # ────────────────────────────────────────────────────────────────────────────
 
-DICE_THEMES: dict[str, tuple[float, float, float]] = {
-    "dark":  (0.15, 0.15, 0.15),   # preto
-    "light": (0.95, 0.95, 0.95),   # branco
+from typing import NamedTuple
+
+class DiceTheme(NamedTuple):
+    dice_color:  tuple[float, float, float]
+    glyph_color: tuple[float, float, float]
+
+DICE_THEMES: dict[str, DiceTheme] = {
+    "dark":  DiceTheme(dice_color=(0.15, 0.15, 0.15), glyph_color=(0.95, 0.95, 0.95)),
+    "light": DiceTheme(dice_color=(0.95, 0.95, 0.95), glyph_color=(0.15, 0.15, 0.15)),
 }
 
 DEFAULT_DICE_COLOR: tuple[float, float, float] = (0.7, 0.7, 0.7)
@@ -222,7 +228,7 @@ def _build_d6(df=False) -> DiceMesh:
             vertices=vertices,
             faces=tuple(tuple(f) for f in faces),
             normals=normals,
-            face_values=(-1, +1, 0, 0, -1, +1),
+            face_values=(+1, +1, -1, +1, 0, 0),
         )
 
     return DiceMesh(

@@ -25,8 +25,8 @@ from OpenGL import GL
 
 from pydice3d.simulation     import DiceSimulation
 from pydice3d.renderer       import Renderer
-from pydice3d.render_data    import RenderScene
-from pydice3d.roll_result    import RollResult
+from pydice3d.scene    import RenderScene
+from pydice3d.results    import RollResult
  
 from debug_wire import (
     CollisionWireframe, build_wire_program,
@@ -74,7 +74,7 @@ class DiceGLArea(Gtk.GLArea):
         self._vp_w: int = 660
         self._vp_h: int = 460
 
-        # Núcleo da simulação — sem GTK, sem OpenGL
+        
         self._sim = DiceSimulation(on_result=self._on_roll_complete)
 
         # Recursos OpenGL — criados em realize, destruídos em unrealize
@@ -85,6 +85,7 @@ class DiceGLArea(Gtk.GLArea):
         self._atlas_json: dict | None = None
 
         self._debug_mode: int = DEBUG_NONE
+        self._theme: str = "light"
 
         # Callback externo opcional: AppWindow pode sobrescrever
         self.on_roll_complete: object = None   # callable(RollResult) | None
@@ -116,6 +117,17 @@ class DiceGLArea(Gtk.GLArea):
             self._renderer.debug_mode = mode
         self.queue_render()
 
+    @property
+    def theme(self) -> str:
+        return self._theme
+
+    @theme.setter
+    def theme(self, value: str) -> None:
+        self._theme = value
+        if self._renderer:
+            self._renderer.theme = value
+        self.queue_render()
+
     # ── Sinais GTK ────────────────────────────────────────────────────────────
 
     def _on_resize(self, _area, width: int, height: int) -> None:
@@ -142,7 +154,7 @@ class DiceGLArea(Gtk.GLArea):
             self._scene, [],
             atlas_npy=_ATLAS_NPY,
             atlas_json=self._atlas_json,
-            theme="dark"
+            theme=self._theme,
         )
 
     def _on_unrealize(self, _area) -> None:
@@ -223,7 +235,7 @@ class DiceGLArea(Gtk.GLArea):
             self._wire_objs.append(CollisionWireframe(state.dice.dice_type))
 
         # Cria/recarrega cena e objetos GPU
-        self._scene     = RenderScene.from_states(self._sim.states)
+        self._scene     = RenderScene.from_states(self._sim.states, theme=self._theme)
         dice_types      = [s.dice.dice_type for s in self._sim.states]
 
         if self._renderer is None:
@@ -231,6 +243,7 @@ class DiceGLArea(Gtk.GLArea):
                 self._scene, dice_types,
                 atlas_npy=_ATLAS_NPY,
                 atlas_json=self._atlas_json,
+                theme=self._theme,
             )
         else:
             self._renderer.reload(self._scene, dice_types)

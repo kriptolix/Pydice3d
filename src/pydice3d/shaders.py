@@ -143,6 +143,17 @@ uniform vec4      u_glyph_uv_minus;
 #define PAIR_Y       0.62
 #define PAIR_X       0.40
 #define PAIR_OFF     0.43
+// Escalas independentes por eixo para símbolos fudge.
+// Calculadas a partir do planeBounds de cada glifo para que a altura
+// visual corresponda à de um dígito típico (pb_h/SINGLE_SCALE ≈ constante).
+// target_visual = 0.7969 / 0.62 ≈ 1.2853
+// "+" pb=0.5156×0.5156 → scale = 0.5156/1.2853 ≈ 0.4011 (quadrado, um scale serve)
+// "-" pb=0.3594×0.1250 → scale_x=0.2796, scale_y=0.0973
+// scale_y do "-" é o mais importante: garante que seus 8px de atlas em Y
+// cubram pixels de tela suficientes para um screen_px_range nítido.
+#define PLUS_SCALE   0.4011
+#define MINUS_SCALE_X 0.2796
+#define MINUS_SCALE_Y 0.2000
 
 float msdf_median(vec3 msd) {
     return max(min(msd.r, msd.g), min(max(msd.r, msd.g), msd.b));
@@ -210,8 +221,8 @@ vec2 digit_atlas_uv(vec2 uv, int digit, float offset_x, float x_scale, float y_s
     return rect_atlas_uv(local, u_glyph_uvs[digit]);
 }
 
-vec2 symbol_atlas_uv(vec2 uv, vec4 rect, float scale) {
-    vec2 local = uv / scale;
+vec2 symbol_atlas_uv(vec2 uv, vec4 rect, float scale_x, float scale_y) {
+    vec2 local = vec2(uv.x / scale_x, uv.y / scale_y);
     if (abs(local.x) > 1.0 || abs(local.y) > 1.0) return vec2(-1.0);
     return rect_atlas_uv(local, rect);
 }
@@ -242,11 +253,11 @@ float glyph_coverage(vec2 uv, int glyph_id) {
         return max(msdf_coverage(lv), msdf_coverage(rv)) * edge_mask;
 
     } else if (glyph_id == 31) {
-        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_plus,  SINGLE_SCALE);
+        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_plus,  PLUS_SCALE,    PLUS_SCALE);
         return msdf_coverage(auv) * edge_mask;
 
     } else if (glyph_id == 32) {
-        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_minus, SINGLE_SCALE);
+        vec2 auv = symbol_atlas_uv(uv, u_glyph_uv_minus, MINUS_SCALE_X, MINUS_SCALE_Y);
         return msdf_coverage(auv) * edge_mask;
     }
 
@@ -477,61 +488,25 @@ def set_uniform_vec4_array(program: int, name: str, data: "np.ndarray") -> None:
 # ────────────────────────────────────────────────────────────────────────────
 
 def _glyph_to_uv_rect(glyph: dict, atlas_w: float, atlas_h: float) -> "np.ndarray":
+    """
+    Retorna o atlasBounds do glifo convertido para UV normalizado [0,1].
+
+    Retorna exatamente os pixels que o msdf-atlas-gen gravou para este glifo,
+    sem expansão nem padding extra.  O shader (rect_atlas_uv) aplica o
+    letterbox por aspect ratio para exibir o glifo sem distorção — expandir
+    o rect aqui além do conteúdo real inflaria a região amostrada para fora
+    do glifo, diluindo o campo SDF e produzindo blur nas bordas.
+
+    Convenção Y: yOrigin=bottom no atlas → invertido para OpenGL (v=0 é topo).
+    Array resultante: [u0, v0, u1, v1] com v0 < v1 (v0 = topo OpenGL).
+    """
     import numpy as np
 
     ab = glyph["atlasBounds"]
-    ab_u0 = ab["left"]   / atlas_w
-    ab_u1 = ab["right"]  / atlas_w
-    # yOrigin=bottom: inverter Y para OpenGL (v=0 é topo)
-    ab_v0 = 1.0 - ab["top"]    / atlas_h
-    ab_v1 = 1.0 - ab["bottom"] / atlas_h
-
-    pb = glyph.get("planeBounds")
-    if pb is None:
-        return np.array([ab_u0, ab_v0, ab_u1, ab_v1], dtype=np.float32)
-
-    ab_du = ab_u1 - ab_u0
-    ab_dv = ab_v1 - ab_v0
-
-    if ab_du < 1e-7 or ab_dv < 1e-7:
-        return np.array([ab_u0, ab_v0, ab_u1, ab_v1], dtype=np.float32)
-
-    pb_w  = pb["right"]  - pb["left"]
-    pb_h  = pb["top"]    - pb["bottom"]
-    pb_cx = (pb["left"]   + pb["right"])  * 0.5
-    pb_cy = (pb["bottom"] + pb["top"])    * 0.5
-
-    half = max(pb_w, pb_h) * 0.5
-    if half < 1e-7:
-        return np.array([ab_u0, ab_v0, ab_u1, ab_v1], dtype=np.float32)
-
-    # Centro do glifo em coordenadas UV do atlas.
-    # cx_frac/cy_frac: posição do centro dentro do planeBounds (0..1).
-    cx_frac = (pb_cx - pb["left"])   / pb_w
-    cy_frac = (pb_cy - pb["bottom"]) / pb_h
-
-    cx_uv = ab_u0 + cx_frac * ab_du
-    cy_uv = ab_v1 - cy_frac * ab_dv   # Y invertido: bottom→v1, top→v0
-
-    # half em EM (unidades do planeBounds) convertido para UV de forma
-    # UNIFORME em U e V — usa a razão (pixels de atlas) / (unidades EM)
-    # separadamente por eixo para preservar a proporção real do glifo.
-    #
-    # A versão anterior usava half/pb_w e half/pb_h como fatores, o que
-    # criava rects não-quadrados em UV para glifos estreitos ("1") ou
-    # largos ("-"), fazendo o shader esticar o glifo ao mapear de [-1,1]².
-    px_per_em_u = ab_du / pb_w   # pixels de atlas por unidade EM, eixo U
-    px_per_em_v = ab_dv / pb_h   # pixels de atlas por unidade EM, eixo V
-
-    half_u = half * px_per_em_u
-    half_v = half * px_per_em_v
-
-    u0 = cx_uv - half_u;  u1 = cx_uv + half_u
-    v0 = cy_uv - half_v;  v1 = cy_uv + half_v
-
-    # Clamp ao atlasBounds
-    u0 = max(u0, ab_u0);  u1 = min(u1, ab_u1)
-    v0 = max(v0, ab_v0);  v1 = min(v1, ab_v1)
+    u0 = ab["left"]   / atlas_w
+    u1 = ab["right"]  / atlas_w
+    v0 = 1.0 - ab["top"]    / atlas_h   # top atlas → menor V em OpenGL
+    v1 = 1.0 - ab["bottom"] / atlas_h
 
     return np.array([u0, v0, u1, v1], dtype=np.float32)
 

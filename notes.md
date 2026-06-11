@@ -13,7 +13,13 @@ simpleaudio
 ## Problemas 
 
 * testar redimensionamento de janela
-* dados empilhados não terminam a rolagem
+* df lidos com valores errados
+
+* Simulation deve usar camera, não manter o estado de camera ele mesmo
+* Não existe um loader, renderer nao deveria fazer load
+* Gl.arena nao deveria usar render_data diretamente, deveria usar através de renderer
+* dice_state não deve recuperar valor, isso deve ser feito em results
+* create_dice_set provavelmente deveria sair de dice e ir pra spawner
 
 ## Melhorias
 

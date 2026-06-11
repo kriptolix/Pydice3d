@@ -358,10 +358,10 @@ class DiceRenderData:
 
 
 def _choose_glyph_color(dice_type: str, theme: str = "light") -> tuple:
+    t = DICE_THEMES.get(theme)
+    if t is not None:
+        return t.glyph_color
     
-    if theme == "dark":
-        return (0.15, 0.15, 0.15)
-    return (0.95, 0.95, 0.95)
 
 
 # ── RenderScene ──────────────────────────────────────────────────────────────

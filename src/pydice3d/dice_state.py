@@ -63,26 +63,18 @@ def quat_slerp_xyzw(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Constantes de estabilização
+# Constants
 # ────────────────────────────────────────────────────────────────────────────
 
-# Limiar de velocidade linear (m/s) e angular (rad/s) para considerar "quase parado".
+
 SETTLING_LINEAR_THRESHOLD:  float = 0.05   # m/s
 SETTLING_ANGULAR_THRESHOLD: float = 0.10   # rad/s
 
 SETTLING_FRAMES_REQUIRED: int = 20
 RESTING_FRAMES_REQUIRED:  int = 30
 
-# Timeout de segurança: se o dado passou este número de frames acumulados em
-# SETTLING sem conseguir avançar para RESTING (caso típico: dado empilhado com
-# jitter de contato persistente do PyBullet), força RESTING mesmo assim.
-# Deve ser generoso o suficiente para não capturar dados genuinamente lentos.
 SETTLING_TIMEOUT_FRAMES: int = 180   # ~3 s a 60 Hz
 
-
-# ────────────────────────────────────────────────────────────────────────────
-# Ciclo de vida
-# ────────────────────────────────────────────────────────────────────────────
 
 class DiceStatus(Enum):
     SPAWNED  = auto()
@@ -161,20 +153,8 @@ class DiceState:
 
     def update_status(self) -> None:
         """
-        Atualiza ciclo de vida lendo velocidades do PyBullet. Também
-        salva prev_orientation para interpolação do renderer.
-
-        Caso especial — dado empilhado sobre outro:
-        O PyBullet pode reportar jitter de contato persistente como
-        micro-velocidade, impedindo o avanço para RESTING. Dois mecanismos
-        cobrem isso:
-          1. A verificação de altura foi removida: um dado parado em cima de
-             outro é tão válido quanto um no chão — o critério de velocidade
-             já garante que ele não está no ar.
-          2. _settling_total acumula todos os frames em que o dado esteve com
-             velocidade abaixo do limiar. Quando esse total atinge
-             SETTLING_TIMEOUT_FRAMES o dado é forçado para RESTING,
-             independentemente de jitter residual.
+        Updates lifecycle by reading speeds from PyBullet. Also
+        saves prev_orientation for renderer interpolation.        
         """
         if self.status == DiceStatus.RESTING:
             return

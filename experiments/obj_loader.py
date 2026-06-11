@@ -1,34 +1,33 @@
 """
-obj_loader.py – Carregamento de malhas .obj para DiceMesh
+obj_loader.py – Loading .obj meshes into DiceMesh
 
-Carrega arquivos Wavefront OBJ preservando UVs de textura (vt) e normais
-suaves (vn) por vértice — essenciais para texturas PBR com chanfros.
+>> This file is not currently in use; it anticipates a feature that will be added in the future.
 
-Normalização de escala
+Loads Wavefront OBJ files preserving texture UVs (vt) and smooth normals (vn) per vertex — essential for PBR textures with bevels.
+
+Scale Normalization
 ──────────────────────
-Os vértices são escalonados UNIFORMEMENTE para que o sólido caiba dentro
-da esfera unitária (divisão pelo máximo das normas).  Isso é diferente de
-projetar cada vértice na esfera — a forma e os ângulos originais do OBJ
-são preservados.  Chanfros e arestas arredondadas continuam corretos.
+Vertices are scaled UNIFORMLY so that the solid fits within the unit sphere (division by the maximum of the norms). This is different from projecting each vertex onto the sphere — the original shape and angles of the OBJ are preserved. Chamfers and rounded edges remain correct.
 
-Quando o .obj contém UV (vt) e normais (vn):
-  - DiceMesh.has_obj_data = True
-  - DiceMesh.tri_* contém o vertex buffer completo pronto para GPU
-  - Pipeline PBR usa as UVs do OBJ; atlas de glifos desativado
+When the .obj file contains UVs (vt) and normals (vn):
 
-Quando falta UV/vn ou ocorre erro:
-  - Retorna None → fallback para builder procedural + pipeline SDF
+- DiceMesh.has_obj_data = True
 
-Estrutura de pastas:
-    assets/
-      d4/   d4.obj   DefaultMaterial_Base_color.png  ...
-      d20/  d20.obj  ...
+- DiceMesh.tri_* contains the complete vertex buffer ready for GPU
 
-Convenção de nomes de grupo para valores de face:
-    g face_1    →  valor 1
-    g face1     →  valor 1
-    # face: 6   →  valor 6
-  Se não informado: faces recebem 1..N em ordem de aparição.
+- PBR pipeline uses the UVs from the OBJ; glyph atlas disabled
+
+When UVs/vn are missing or an error occurs:
+
+- Returns None → fallback to procedural builder + SDF pipeline
+
+Group naming convention for face values:
+
+g face_1 → value 1
+g face1 → value 1
+# face: 6 → value 6
+
+If not specified: faces are assigned 1..N in order of appearance.
 """
 
 from __future__ import annotations
