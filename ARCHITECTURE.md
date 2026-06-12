@@ -1,6 +1,6 @@
 # pydice3d — Architecture Reference
 
-This document describes the internal design of the library. Its purpose is to let module-level and class-level docstrings stay short, covering only what the code itself cannot express.
+This document describes the internal design of the library. 
 
 ---
 
@@ -45,9 +45,10 @@ simulation          → physics, camera, dice_state,
                       spawner, results, scene, audio
 ```
 
-`glarena` (GTK demo, not part of the lib):
+`exemples/gtk` (GTK demo, not part of the lib):
 ```
 glarena             → simulation, renderer            # only two lib imports
+main                → glarena
 ```
 
 ---
@@ -147,6 +148,38 @@ Glyph index convention:
 | 33 | blank face (Fudge) |
 | 255 | no glyph |
 
+Dice shader uniforms
+────────────────────────────
+mat4 u_model                    : model matrix
+mat4 u_view_proj                : VP = P × V
+mat3 u_normal_mat               : normal matrix
+vec3 u_light_dir                : light direction (world, normalized)
+vec3 u_light_color              : light color
+vec3 u_ambient                  : ambient color
+vec3 u_dice_color               : base die color
+vec3 u_glyph_color              : glyph color
+float u_shininess               : mirror exponent
+bool u_highlight                : highlights the data (ready result)
+vec3 u_cam_pos                  : camera position (world space)
+int u_face_glyphs[MAX_FACES]    : glyph index per face
+sampler2D u_glyph_atlas         : atlas texture (unit 0)
+vec4 u_glyph_uvs[MAX_GLYPHS]    : (u0,v0,u1,v1) of each glyph in the atlas
+
+Vertex attributes
+─────────────────────
+layout 0: vec3 a_position
+layout 1: vec3 a_normal
+layout 2: vec2 a_uv — Local UV of the face at [-1,1]²
+layout 3: float a_face_idx — face index (flat int via float)
+
+── Fragment shader — glyph atlas ───────────────────────────────────────
+v_uv is at [-1,1]² centered on the face.
+u_glyph_uvs[id] = vec4(u0, v0, u1, v1) — rectangle of the glyph in the atlas.
+Simple glyphs (0–9, +, −): a single sample from the centered atlas.
+Compound glyphs (10–20, d100 21–30): two samples side by side,
+each digit occupies half the width with a side offset of ±PAIR_OFFSET.
+GLYPH_BLANK (33): no sample (empty face of the fudge die).
+
 ---
 
 ## Camera
@@ -198,14 +231,4 @@ Controls the spawn behavior of `spawn_dice`. Key parameters:
 | `torque_max` | 7.0 rad/s | Max initial angular velocity |
 | `seed` | None | Fixed seed for reproducibility |
 
----
 
-## What docstrings should still cover
-
-After this document exists, docstrings in the codebase should be limited to:
-
-- **Public API methods with non-obvious parameters** — a one-line summary and parameter list if needed.
-- **Non-trivial algorithms** — a brief note on why, not what (the code shows what).
-- **Gotchas and constraints** — things that would surprise a reader (e.g. "elevation clamped to avoid singularity").
-
-Module-level docstrings can be reduced to a single line stating the module's responsibility. Everything else lives here.

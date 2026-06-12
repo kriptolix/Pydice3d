@@ -1,26 +1,6 @@
 """
-dice_mesh.py – Geometria dos Dados Poliédricos
-
-Responsabilidade: definir a malha 3D (vértices + faces + normais)
-de cada tipo de dado suportado. Não conhece física, rendering nem estado.
-
-Tipos suportados: d4, d6, d8, d10, d12, d20.
-
-Convenções
-----------
-- Vértices normalizados: inscritos na esfera unitária (raio = 1.0).
-  Para escalar, multiplique todos os vértices por `scale`.
-- Centro de massa na origem (0, 0, 0).
-- Normais de face apontam para fora do sólido.
-- Faces definidas com orientação CCW (counter-clockwise) vista de fora.
-- Cada face é uma lista de índices de vértices (triangular ou poligonal).
-
-Estrutura de retorno de DiceMesh
----------------------------------
-vertices  : ndarray (N, 3)  – posições dos vértices
-faces     : list[list[int]] – índices por face (pode ser triângulos ou polígonos)
-normals   : ndarray (F, 3)  – normal unitária de cada face
-face_values: list[int]      – valor numérico associado a cada face
+dice_mesh.py – Define the 3D mesh (vertices + faces + normals)
+for each supported data type.
 """
 
 from __future__ import annotations
@@ -30,24 +10,14 @@ from dataclasses import dataclass
 from typing import Literal
 
 DiceType = Literal["d4", "d6", "d8", "d10", "d12", "d20", "d100", "df"]
-ALL_DICE: tuple[DiceType, ...] = ("d4", "d6", "d8", "d10", "d12", "d20", "d100", "df")
-
-
-
+ALL_DICE: tuple[DiceType, ...] = (
+    "d4", "d6", "d8", "d10", "d12", "d20", "d100", "df")
 
 
 @dataclass(frozen=True)
 class DiceMesh:
     """
-    Malha imutável de um dado poliédrico.
-
-    Atributos
-    ---------
-    dice_type   : tipo do dado (ex: "d6")
-    vertices    : (N, 3) float64 — posições na esfera unitária
-    faces       : list de listas de índices de vértices por face
-    normals     : (F, 3) float64 — normal unitária de cada face
-    face_values : (F,) int       — valor numérico da face i
+    Immutable mesh of a given polyhedral.
     """
     dice_type: str
     vertices: np.ndarray      # shape (N, 3)
@@ -79,11 +49,7 @@ class DiceMesh:
         )
 
     def triangulated_faces(self) -> list[tuple[int, int, int]]:
-        """
-        Decompõe todas as faces em triângulos (fan triangulation).
-        Necessário para renderização OpenGL com GL_TRIANGLES.
-        Retorna lista de tuplas (i0, i1, i2).
-        """
+        
         tris = []
         for face in self.faces:
             face = list(face)
@@ -91,10 +57,6 @@ class DiceMesh:
                 tris.append((face[0], face[i], face[i + 1]))
         return tris
 
-
-# ---------------------------------------------------------------------------
-# Funções auxiliares de geometria
-# ---------------------------------------------------------------------------
 
 def _normalize(v: np.ndarray) -> np.ndarray:
     """Normaliza vetor 3D. Retorna vetor zero se norma < epsilon."""
@@ -158,10 +120,10 @@ def _build_d4() -> DiceMesh:
     # Tetraedro inscrito na esfera unitária
     a = 1.0 / np.sqrt(3)
     raw = np.array([
-        [ a,  a,  a],
+        [a,  a,  a],
         [-a, -a,  a],
         [-a,  a, -a],
-        [ a, -a, -a],
+        [a, -a, -a],
     ])
     vertices = _project_to_sphere(raw)
 
@@ -190,8 +152,8 @@ def _build_d6(df=False) -> DiceMesh:
     """
     a = 1.0 / np.sqrt(3)
     raw = np.array([
-        [-a, -a, -a], [ a, -a, -a], [ a,  a, -a], [-a,  a, -a],  # z=-a
-        [-a, -a,  a], [ a, -a,  a], [ a,  a,  a], [-a,  a,  a],  # z=+a
+        [-a, -a, -a], [a, -a, -a], [a,  a, -a], [-a,  a, -a],  # z=-a
+        [-a, -a,  a], [a, -a,  a], [a,  a,  a], [-a,  a,  a],  # z=+a
     ])
     vertices = _project_to_sphere(raw)
 
@@ -205,7 +167,7 @@ def _build_d6(df=False) -> DiceMesh:
         [3, 0, 4, 7],   # -X → 4
     ]
     normals = _compute_normals(vertices, faces)
-    
+
     if df:
         return DiceMesh(
             dice_type="df",
@@ -223,6 +185,7 @@ def _build_d6(df=False) -> DiceMesh:
         face_values=(1, 6, 2, 5, 3, 4),
     )
 
+
 def _build_d8() -> DiceMesh:
     """
     Octaedro regular — d8.
@@ -230,12 +193,12 @@ def _build_d8() -> DiceMesh:
     Valores: 1–8, faces opostas somam 9.
     """
     vertices = np.array([
-        [ 1,  0,  0],
-        [-1,  0,  0],
-        [ 0,  1,  0],
-        [ 0, -1,  0],
-        [ 0,  0,  1],
-        [ 0,  0, -1],
+        [1,  0,  0],
+        [-1, 0,  0],
+        [0,  1,  0],
+        [0, -1,  0],
+        [0,  0,  1],
+        [0,  0, -1],
     ], dtype=float)
     vertices = _project_to_sphere(vertices)
 
@@ -249,7 +212,9 @@ def _build_d8() -> DiceMesh:
         [1, 5, 3],  # 7
         [3, 5, 0],  # 8
     ]
+
     normals = _compute_normals(vertices, faces)
+    
     return DiceMesh(
         dice_type="d8",
         vertices=vertices,
@@ -257,6 +222,7 @@ def _build_d8() -> DiceMesh:
         normals=normals,
         face_values=(1, 2, 3, 4, 5, 6, 7, 8),
     )
+
 
 def _build_d10(d100=False) -> DiceMesh:
     """
@@ -275,21 +241,21 @@ def _build_d10(d100=False) -> DiceMesh:
     # Índices 0-9: anel equatorial (alternado +y/-y)
     # Índice 10: polo superior (+Y), índice 11: polo inferior (-Y)
 
-    POLE_HEIGHT = 0.70    
+    POLE_HEIGHT = 0.70
 
     vertices = np.array([
-        [ 0.44721360,  0.10557281,  0.32491970],  #  0
-        [ 0.17082039, -0.10557281,  0.52573111],  #  1
-        [-0.17082039,  0.10557281,  0.52573111],  #  2
-        [-0.44721360, -0.10557281,  0.32491970],  #  3
-        [-0.55278640,  0.10557281,  0.00000000],  #  4
-        [-0.44721360, -0.10557281, -0.32491970],  #  5
-        [-0.17082039,  0.10557281, -0.52573111],  #  6
-        [ 0.17082039, -0.10557281, -0.52573111],  #  7
-        [ 0.44721360,  0.10557281, -0.32491970],  #  8
-        [ 0.55278640, -0.10557281,  0.00000000],  #  9
-        [ 0.00000000,  1.00000000,  0.00000000],  # 10 polo sup
-        [ 0.00000000, -1.00000000,  0.00000000],  # 11 polo inf
+        [0.44721360,  0.10557281,  0.32491970],  # 0
+        [0.17082039, -0.10557281,  0.52573111],  # 1
+        [-0.17082039,  0.10557281,  0.52573111],  # 2
+        [-0.44721360, -0.10557281,  0.32491970],  # 3
+        [-0.55278640,  0.10557281,  0.00000000],  # 4
+        [-0.44721360, -0.10557281, -0.32491970],  # 5
+        [-0.17082039,  0.10557281, -0.52573111],  # 6
+        [0.17082039, -0.10557281, -0.52573111],  # 7
+        [0.44721360,  0.10557281, -0.32491970],  # 8
+        [0.55278640, -0.10557281,  0.00000000],  # 9
+        [0.00000000,  1.00000000,  0.00000000],  # 10 polo sup
+        [0.00000000, -1.00000000,  0.00000000],  # 11 polo inf
     ], dtype=float)
 
     vertices[10] = (
@@ -309,11 +275,11 @@ def _build_d10(d100=False) -> DiceMesh:
     # Winding CCW visto de fora.
     faces_raw = [
         (10,  0,  9,  8),  # kite  1
-        ( 2,  1,  0, 10),  # kite  2
-        ( 4,  3,  2, 10),  # kite  3
-        ( 6,  5,  4, 10),  # kite  4
-        ( 8,  7,  6, 10),  # kite  5
-        ( 9,  0,  1, 11),  # kite  6
+        (2,  1,  0, 10),  # kite  2
+        (4,  3,  2, 10),  # kite  3
+        (6,  5,  4, 10),  # kite  4
+        (8,  7,  6, 10),  # kite  5
+        (9,  0,  1, 11),  # kite  6
         (11,  1,  2,  3),  # kite  7
         (11,  3,  4,  5),  # kite  8
         (11,  5,  6,  7),  # kite  9
@@ -321,7 +287,7 @@ def _build_d10(d100=False) -> DiceMesh:
     ]
 
     normals = _compute_normals(vertices, [list(f) for f in faces_raw])
-    
+
     if d100:
         return DiceMesh(
             dice_type="d100",
@@ -339,6 +305,7 @@ def _build_d10(d100=False) -> DiceMesh:
         face_values=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
     )
 
+
 def _build_d12() -> DiceMesh:
     """
     Dodecaedro regular — d12.
@@ -355,16 +322,16 @@ def _build_d12() -> DiceMesh:
     # 20 vértices em três classes de simetria
     raw = np.array([
         # Classe 1: (±1, ±1, ±1)
-        [ 1,  1,  1], [-1,  1,  1], [ 1, -1,  1], [-1, -1,  1],
-        [ 1,  1, -1], [-1,  1, -1], [ 1, -1, -1], [-1, -1, -1],
+        [1,  1,  1], [-1,  1,  1], [1, -1,  1], [-1, -1,  1],
+        [1,  1, -1], [-1,  1, -1], [1, -1, -1], [-1, -1, -1],
         # Classe 2: (0, ±1/φ, ±φ)
-        [ 0,  inv,  phi], [ 0, -inv,  phi],
-        [ 0,  inv, -phi], [ 0, -inv, -phi],
+        [0,  inv,  phi], [0, -inv,  phi],
+        [0,  inv, -phi], [0, -inv, -phi],
         # Classe 3: (±1/φ, ±φ, 0)
-        [ inv,  phi, 0], [-inv,  phi, 0],
-        [ inv, -phi, 0], [-inv, -phi, 0],
+        [inv,  phi, 0], [-inv,  phi, 0],
+        [inv, -phi, 0], [-inv, -phi, 0],
         # Classe 4: (±φ, 0, ±1/φ)
-        [ phi, 0,  inv], [ phi, 0, -inv],
+        [phi, 0,  inv], [phi, 0, -inv],
         [-phi, 0,  inv], [-phi, 0, -inv],
     ], dtype=np.float64)
 
@@ -401,6 +368,7 @@ def _build_d12() -> DiceMesh:
         face_values=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
     )
 
+
 def _build_d20() -> DiceMesh:
     """
     Icosaedro regular — d20.
@@ -415,9 +383,9 @@ def _build_d20() -> DiceMesh:
 
     # 12 vértices: três retângulos áureos ortogonais
     raw = np.array([
-        [ 0,  1,  phi], [ 0, -1,  phi], [ 0,  1, -phi], [ 0, -1, -phi],
-        [ 1,  phi,  0], [-1,  phi,  0], [ 1, -phi,  0], [-1, -phi,  0],
-        [ phi,  0,  1], [ phi,  0, -1], [-phi,  0,  1], [-phi,  0, -1],
+        [0,  1,  phi], [0, -1,  phi], [0,  1, -phi], [0, -1, -phi],
+        [1,  phi,  0], [-1,  phi,  0], [1, -phi,  0], [-1, -phi,  0],
+        [phi,  0,  1], [phi,  0, -1], [-phi,  0,  1], [-phi,  0, -1],
     ], dtype=np.float64)
 
     raw -= raw.mean(axis=0)
@@ -426,10 +394,10 @@ def _build_d20() -> DiceMesh:
     # 20 faces triangulares hardcoded (winding CCW visto de fora)
     # Derivadas da topologia canônica do icosaedro.
     faces = [
-        [ 0,  1,  8], [ 0,  8,  4], [ 0,  4,  5], [ 0,  5, 10], [ 0, 10,  1],
-        [ 3,  2,  9], [ 3,  9,  6], [ 3,  6,  7], [ 3,  7, 11], [ 3, 11,  2],
-        [ 1,  6,  8], [ 8,  6,  9], [ 8,  9,  4], [ 4,  9,  2], [ 4,  2,  5],
-        [ 5,  2, 11], [ 5, 11, 10], [10, 11,  7], [10,  7,  1], [ 1,  7,  6],
+        [0,  1,  8], [0,  8,  4], [0,  4,  5], [0,  5, 10], [0, 10,  1],
+        [3,  2,  9], [3,  9,  6], [3,  6,  7], [3,  7, 11], [3, 11,  2],
+        [1,  6,  8], [8,  6,  9], [8,  9,  4], [4,  9,  2], [4,  2,  5],
+        [5,  2, 11], [5, 11, 10], [10, 11,  7], [10,  7,  1], [1,  7,  6],
     ]
 
     faces = _ensure_outward_normals(raw, faces)
@@ -445,15 +413,15 @@ def _build_d20() -> DiceMesh:
 
 
 _BUILDERS = {
-        "d4": lambda: _build_d4(),
-        "d6": lambda: _build_d6(),
-        "d8": lambda: _build_d8(),
-        "d10": lambda: _build_d10(),
-        "d12": lambda: _build_d12(),
-        "d20": lambda: _build_d20(),
-        "d100": lambda: _build_d10(d100=True),
-        "df": lambda: _build_d6(df=True),
-    }
+    "d4": lambda: _build_d4(),
+    "d6": lambda: _build_d6(),
+    "d8": lambda: _build_d8(),
+    "d10": lambda: _build_d10(),
+    "d12": lambda: _build_d12(),
+    "d20": lambda: _build_d20(),
+    "d100": lambda: _build_d10(d100=True),
+    "df": lambda: _build_d6(df=True),
+}
 
 # Cache de malhas (singleton por tipo — malhas são imutáveis)
 _MESH_CACHE: dict[str, DiceMesh] = {}
@@ -464,7 +432,7 @@ def get_mesh(dice_type: DiceType, scale: float = 1.0) -> DiceMesh:
     Retorna a DiceMesh para o tipo solicitado, com escala aplicada.
     Malhas base são cacheadas; escala cria nova instância leve.
     """
-    
+
     if dice_type not in _BUILDERS:
         raise ValueError(f"Tipo de dado desconhecido: '{dice_type}'. "
                          f"Suportados: {list(_BUILDERS.keys())}")

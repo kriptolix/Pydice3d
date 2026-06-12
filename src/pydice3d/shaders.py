@@ -1,78 +1,18 @@
 """
-shaders.py – Código GLSL e Utilitários de Compilação
-
-Responsabilidade: definir os shaders GLSL e compilá-los em objetos OpenGL.
-Não cria janelas nem contextos — requer contexto OpenGL ativo.
-
-Shaders implementados
-──────────────────────
-DICE_VERT / DICE_FRAG : shader principal para dados com Blinn-Phong + atlas de glifos
-GROUND_VERT / GROUND_FRAG : shader para o plano do chão (grade simples)
-
-Sistema de glifos — Texture Atlas
-───────────────────────────────────
-Cada face recebe:
-  - UV  : coordenadas [-1,1]² centradas na face, passadas como atributo de vértice
-  - u_face_glyphs[F] : índice do glifo (int) para cada face F
-
-O fragment shader converte as coordenadas UV da face para coordenadas na
-atlas usando u_glyph_uvs[glyph_id] = vec4(u0, v0, u1, v1) e amostra
-u_glyph_atlas (sampler2D, unidade de textura 0).
-
-Índices de glifos
-─────────────────
-  0–9   : dígitos simples 0–9
-  10–20 : números de dois dígitos 10–20
-  21–30 : dezenas do d100 (00,10,20,…,90)  →  21 + tens//10
-  31    : símbolo "+"  (dado fudge positivo)
-  32    : símbolo "−"  (dado fudge negativo)
-  33    : face vazia   (dado fudge neutro)
-  255   : sem glifo (face não numerada)
-
-Uniforms do shader de dados
-────────────────────────────
-  mat4      u_model                   : matriz de modelo
-  mat4      u_view_proj               : VP = P × V
-  mat3      u_normal_mat              : matriz de normais
-  vec3      u_light_dir               : direção da luz (mundo, normalizada)
-  vec3      u_light_color             : cor da luz
-  vec3      u_ambient                 : cor ambiente
-  vec3      u_dice_color              : cor base do dado
-  vec3      u_glyph_color             : cor do glifo
-  float     u_shininess               : expoente especular
-  bool      u_highlight               : destaca o dado (resultado pronto)
-  vec3      u_cam_pos                 : posição da câmera (espaço do mundo)
-  int       u_face_glyphs[MAX_FACES]  : índice do glifo por face
-  sampler2D u_glyph_atlas             : textura da atlas (unidade 0)
-  vec4      u_glyph_uvs[MAX_GLYPHS]  : (u0,v0,u1,v1) de cada glifo na atlas
-
-Atributos de vértice
-─────────────────────
-  layout 0: vec3  a_position
-  layout 1: vec3  a_normal
-  layout 2: vec2  a_uv        — UV local da face em [-1,1]²
-  layout 3: float a_face_idx  — índice da face (flat int via float)
+shaders.py – GLSL Code and Compilation Utilities. Defines GLSL shaders and compiles them 
+into OpenGL objects — requires an active OpenGL context.
 """
 
 from __future__ import annotations
 from OpenGL import GL
 
+GLYPH_NONE = 255
+GLYPH_PLUS = 31    # "+"
+GLYPH_MINUS = 32    # "−"
+GLYPH_BLANK = 33    # empty face
+MAX_FACES = 24
+MAX_GLYPHS = 34 # index 0–33 (GLYPH _BLANK included); 255=GLYPH NONE is excluded
 
-# ────────────────────────────────────────────────────────────────────────────
-# Constantes de índice de glifo (usadas em Python e espelhadas no GLSL)
-# ────────────────────────────────────────────────────────────────────────────
-
-GLYPH_NONE   = 255   # sem glifo
-GLYPH_PLUS   = 31    # "+"  dado fudge
-GLYPH_MINUS  = 32    # "−"  dado fudge
-GLYPH_BLANK  = 33    # face vazia dado fudge
-MAX_FACES    = 24    # máximo de faces suportadas pelo array de uniforms
-MAX_GLYPHS   = 34    # índices 0–33 (GLYPH_BLANK inclusive); 255=GLYPH_NONE fica fora
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# Código GLSL
-# ────────────────────────────────────────────────────────────────────────────
 
 DICE_VERT = """
 #version 330 core
@@ -100,15 +40,6 @@ void main() {
     gl_Position     = u_view_proj * world_pos;
 }
 """
-
-# ── Fragment shader — atlas de glifos ───────────────────────────────────────
-# v_uv está em [-1,1]² centrado na face.
-# u_glyph_uvs[id] = vec4(u0, v0, u1, v1) — retângulo do glifo na atlas.
-#
-# Glifos simples (0–9, +, −): um único sample da atlas centralizado.
-# Glifos compostos (10–20, d100 21–30): dois samples lado a lado,
-#   cada dígito ocupa metade da largura com um offset lateral de ±PAIR_OFFSET.
-# GLYPH_BLANK (33): nenhum sample (face vazia do dado fudge).
 
 DICE_FRAG = """
 #version 330 core
@@ -345,28 +276,6 @@ void main() {
 }
 """
 
-WIRE_VERT = """
-#version 330 core
-layout(location = 0) in vec3 a_position;
-uniform mat4 u_mvp;
-void main() {
-    gl_Position = u_mvp * vec4(a_position, 1.0);
-}
-"""
-
-WIRE_FRAG = """
-#version 330 core
-out vec4 frag_color;
-uniform vec3 u_color;
-void main() {
-    frag_color = vec4(u_color, 1.0);
-}
-"""
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# Compilação
-# ────────────────────────────────────────────────────────────────────────────
 
 class ShaderError(RuntimeError):
     pass
@@ -380,7 +289,7 @@ def _compile_shader(source: str, shader_type: int) -> int:
         log = GL.glGetShaderInfoLog(shader).decode()
         kind = "vertex" if shader_type == GL.GL_VERTEX_SHADER else "fragment"
         GL.glDeleteShader(shader)
-        raise ShaderError(f"Falha ao compilar shader {kind}:\n{log}")
+        raise ShaderError(f"Failed to compile shader {kind}:\n{log}")
     return shader
 
 
@@ -394,7 +303,7 @@ def _link_program(vert: int, frag: int) -> int:
     if not GL.glGetProgramiv(program, GL.GL_LINK_STATUS):
         log = GL.glGetProgramInfoLog(program).decode()
         GL.glDeleteProgram(program)
-        raise ShaderError(f"Falha ao linkar programa:\n{log}")
+        raise ShaderError(f"Failed to link program:\n{log}")
     return program
 
 
@@ -411,10 +320,8 @@ def build_dice_program() -> int:
 def build_ground_program() -> int:
     return build_program(GROUND_VERT, GROUND_FRAG)
 
+# Helpers
 
-# ────────────────────────────────────────────────────────────────────────────
-# Helpers de uniforms
-# ────────────────────────────────────────────────────────────────────────────
 
 def set_uniform_mat4(program: int, name: str, mat) -> None:
     import numpy as np
@@ -449,8 +356,9 @@ def set_uniform_bool(program: int, name: str, val: bool) -> None:
 
 
 def set_uniform_int_array(program: int, name: str, values: list[int]) -> None:
-    """Envia array de ints para uniform int[]."""
-    import ctypes, numpy as np
+    """Sends array of ints to uniform int[]."""
+    import ctypes
+    import numpy as np
     n = len(values)
     for i, v in enumerate(values):
         loc = GL.glGetUniformLocation(program, f"{name}[{i}]")
@@ -472,7 +380,7 @@ def set_uniform_vec4(program: int, name: str, v) -> None:
 
 def set_uniform_vec4_array(program: int, name: str, data: "np.ndarray") -> None:
     """
-    Envia array de vec4 para uniform vec4[].
+    Send array of vec4 to uniform vec4[]. 
     data: float32 (N, 4)
     """
     import numpy as np
@@ -480,42 +388,30 @@ def set_uniform_vec4_array(program: int, name: str, data: "np.ndarray") -> None:
     for i, row in enumerate(arr):
         loc = GL.glGetUniformLocation(program, f"{name}[{i}]")
         if loc != -1:
-            GL.glUniform4f(loc, float(row[0]), float(row[1]), float(row[2]), float(row[3]))
+            GL.glUniform4f(loc, float(row[0]), float(
+                row[1]), float(row[2]), float(row[3]))
 
+# Atlas UV table
 
-# ────────────────────────────────────────────────────────────────────────────
-# Tabela de UV da atlas
-# ────────────────────────────────────────────────────────────────────────────
 
 def _glyph_to_uv_rect(glyph: dict, atlas_w: float, atlas_h: float) -> "np.ndarray":
     """
-    Retorna o atlasBounds do glifo convertido para UV normalizado [0,1].
+    Returns the atlasBounds of the glyph converted to UV normalized [0,1].
 
-    Retorna exatamente os pixels que o msdf-atlas-gen gravou para este glifo,
-    sem expansão nem padding extra.  O shader (rect_atlas_uv) aplica o
-    letterbox por aspect ratio para exibir o glifo sem distorção — expandir
-    o rect aqui além do conteúdo real inflaria a região amostrada para fora
-    do glifo, diluindo o campo SDF e produzindo blur nas bordas.
-
-    Convenção Y: yOrigin=bottom no atlas → invertido para OpenGL (v=0 é topo).
-    Array resultante: [u0, v0, u1, v1] com v0 < v1 (v0 = topo OpenGL).
+    Y Convention: yOrigin=bottom in the atlas → inverted for OpenGL (v=0 is top).    
     """
     import numpy as np
 
     ab = glyph["atlasBounds"]
-    u0 = ab["left"]   / atlas_w
-    u1 = ab["right"]  / atlas_w
-    v0 = 1.0 - ab["top"]    / atlas_h   # top atlas → menor V em OpenGL
+    u0 = ab["left"] / atlas_w
+    u1 = ab["right"] / atlas_w
+    v0 = 1.0 - ab["top"] / atlas_h
     v1 = 1.0 - ab["bottom"] / atlas_h
 
     return np.array([u0, v0, u1, v1], dtype=np.float32)
 
 
 def _build_unicode_index(atlas_json: dict) -> dict:
-    """
-    Constrói dicionário unicode → glyph_entry a partir do array
-    atlas_json["glyphs"], que é a estrutura do novo formato msdf-atlas-gen.
-    """
     return {g["unicode"]: g for g in atlas_json.get("glyphs", [])
             if "atlasBounds" in g}
 
@@ -525,11 +421,7 @@ def _build_glyph_uvs_from_list(
     atlas_w: float,
     atlas_h: float,
 ) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
-    """
-    Extrai (digit_table, plus_rect, minus_rect) a partir de um índice
-    unicode já construído.  Separado para que build_glyph_uv_table e
-    build_symbol_uvs possam compartilhá-lo sem reconstruir o índice.
-    """
+
     import numpy as np
 
     zero4 = np.zeros(4, dtype=np.float32)
@@ -540,8 +432,8 @@ def _build_glyph_uvs_from_list(
         if cp in by_unicode:
             table[digit] = _glyph_to_uv_rect(by_unicode[cp], atlas_w, atlas_h)
 
-    plus_rect  = (_glyph_to_uv_rect(by_unicode[43], atlas_w, atlas_h)
-                  if 43 in by_unicode else zero4.copy())
+    plus_rect = (_glyph_to_uv_rect(by_unicode[43], atlas_w, atlas_h)
+                 if 43 in by_unicode else zero4.copy())
     minus_rect = (_glyph_to_uv_rect(by_unicode[45], atlas_w, atlas_h)
                   if 45 in by_unicode else zero4.copy())
 
@@ -550,12 +442,12 @@ def _build_glyph_uvs_from_list(
 
 def build_glyph_uv_table(atlas_json: dict) -> "np.ndarray":
     """
-    Retorna float32 (10, 4) com os rects (u0,v0,u1,v1) dos dígitos 0–9.
-    Índice i == dígito i.
+    Returns float32(10, 4) with the rects(u0,v0,u1,v1) of digits 0–9.
 
-    Os UVs são ajustados pelo planeBounds para que o shader mapeie
-    corretamente o UV local [-1,1] para a região do glifo no atlas,
-    sem vazar para glifos vizinhos.
+    Index i == digit i.
+
+    The UVs are adjusted by planeBounds so that the shader correctly maps the 
+    local UV [-1,1] to the glyph region in the atlas, without leaking to neighboring glyphs.
     """
     import numpy as np
 
@@ -581,9 +473,7 @@ def build_glyph_uv_table(atlas_json: dict) -> "np.ndarray":
 
 def build_symbol_uvs(atlas_json: dict) -> "tuple[np.ndarray, np.ndarray]":
     """
-    Retorna (plus_rect, minus_rect) como float32 arrays de shape (4,),
-    ajustados pelo planeBounds.
-    Unicode: '+' = 43, '-' = 45.
+    Returns (plus_rect, minus_rect) as float32 shape arrays (4,).    
     """
     import numpy as np
     zero4 = np.zeros(4, dtype=np.float32)
@@ -596,7 +486,8 @@ def build_symbol_uvs(atlas_json: dict) -> "tuple[np.ndarray, np.ndarray]":
 
     if isinstance(glyphs_raw, list):
         by_unicode = _build_unicode_index(atlas_json)
-        _, plus_rect, minus_rect = _build_glyph_uvs_from_list(by_unicode, atlas_w, atlas_h)
+        _, plus_rect, minus_rect = _build_glyph_uvs_from_list(
+            by_unicode, atlas_w, atlas_h)
         return plus_rect, minus_rect
     else:
         def _rect(key):

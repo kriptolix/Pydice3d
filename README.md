@@ -40,7 +40,7 @@ sim = DiceSimulation(on_result=lambda r: print(r.summary()))
 sim.resize(viewport_w, viewport_h)
 sim.roll({"d6": 3}, theme="dark")
  
-renderer = Renderer(sim.scene, sim.dice_types, atlas_npy=..., atlas_json=...)
+renderer = Renderer(sim.scene, sim.dice_types)
  
 # inside the render loop:
 sim.step()                                             # advance physics, update scene
@@ -52,7 +52,7 @@ renderer.draw(sim.scene, sim.view_projection(),
  
 ## Architecture
  
-The library is split into clearly separated layers. Public API surface is intentionally small.
+The library is split into clearly separated layers. Public API surface is intentionally small. For more details, check the architecture file.
  
 ```
 pydice3d/
@@ -70,18 +70,7 @@ pydice3d/
 ├── math_utils.py    # Quaternion and vector math
 └── audio.py         # Collision and rolling audio engine
 ```
- 
-### Layer boundaries
- 
-**Simulation layer** — `simulation`, `physics`, `spawner`, `dice`, `dice_state`, `results`  
-Knows nothing about OpenGL. Can be used in headless mode (tests, servers, CLI tools).
- 
-**Render layer** — `scene`, `renderer`, `shaders`  
-Consumes `DiceState` poses to build GPU objects and draw calls. No physics knowledge.
- 
-**Shared** — `camera`, `math_utils`, `dice_mesh`  
-Pure math and geometry. No dependencies on physics or OpenGL.
- 
+
 ### Data flow per frame
  
 ```
@@ -101,15 +90,16 @@ PhysicsWorld.step()
  
 ## Demonstration application
  
-The repository includes a GTK4-based demo (`glarena.py`) used for manual testing, physics tuning, and visual validation. It is not required for using the library and is not part of the public API.
+The repository includes a GTK4-based demo (`exemples/gtk`) used for manual testing, physics tuning, and visual validation. It is not required for using the library and is not part of the public API.
  
 ---
  
 ## Status
- 
-Active development, alpha stage. Architecture and APIs are still evolving and may change significantly between releases.
- 
-Bug reports, suggestions, and pull requests will be accepted once the public API has stabilized. The intent is to avoid wasting contributor effort on code that may be superseded before then.
+
+Active development. The project is feature-complete for the initial release but it needs to undergo more comprehensive testing. The architecture and APIs have reached a point of stability. Future updates are expected to focus primarily on bug fixes, testing, performance improvements, and incremental enhancements rather than disruptive changes.
+
+Bug reports, suggestions, and pull requests are welcome.
+
  
 ---
  

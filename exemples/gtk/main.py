@@ -28,12 +28,14 @@ class AppWindow(Gtk.ApplicationWindow):
         )
         self.set_default_size(680, 600)
 
+        '''
         self.style_manager = Adw.StyleManager.get_default()
 
         self.theme = "light"
         
         if self.style_manager.get_dark():
-            self.theme = "dark"      
+            self.theme = "dark"
+        '''      
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         root.set_margin_top(10)    

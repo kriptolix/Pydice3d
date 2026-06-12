@@ -1,45 +1,6 @@
 """
-audio.py – Motor de Áudio para Rolagem de Dados
-
-Recebe eventos de colisão vindos do PhysicsWorld e reproduz
-samples com volume e pitch variados via sounddevice + PortAudio.
-
-Arquitetura
-───────────
-PhysicsWorld.poll_collision_events()
-    └─► CollisionEvent(body_a, body_b, surface, impulse)
-            └─► DiceAudioEngine.on_collision(event)
-                    ├─► descarta se impulse < threshold
-                    ├─► cooldown por par de corpos
-                    ├─► mapeia surface → sample
-                    ├─► mapeia impulse → volume
-                    ├─► pitch shift por resampling linear
-                    └─► sounddevice.play() em thread separada
-
-DiceAudioEngine.on_rolling(states)
-    └─► velocidade angular média dos dados em movimento
-    └─► loop contínuo via callback de stream
-
-Pitch shift
-───────────
-sounddevice trabalha com float32 nativamente. O resampling linear
-interpola o array PCM para um comprimento diferente antes de enviar
-ao dispositivo, mantendo a taxa de saída constante:
-  pitch > 1.0 → array menor  → soa mais agudo
-  pitch < 1.0 → array maior  → soa mais grave
-
-Estrutura de assets esperada
-─────────────────────────────
-assets/audio/
-  hit_floor_soft.wav      impacto suave no piso
-  hit_floor_hard.wav      impacto forte no piso
-  hit_wall.wav            batida na parede
-  hit_dice.wav            dado contra dado
-  rolling_loop.wav        som contínuo de rolar (loop)
-
-WAV: qualquer sample rate, mono ou estéreo, qualquer bit depth.
-O motor converte internamente para float32 e para o sample rate
-do dispositivo padrão.
+audio.py – Motor de Áudio para Rolagem de Dados. Recebe eventos de colisão vindos do 
+PhysicsWorld e reproduz samples com volume e pitch variados via sounddevice + PortAudio.
 """
 
 from __future__ import annotations
@@ -47,7 +8,7 @@ from __future__ import annotations
 import random
 import threading
 import wave
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
@@ -61,69 +22,34 @@ except ImportError:
     _SD_AVAILABLE = False
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Caminho dos assets
-# ────────────────────────────────────────────────────────────────────────────
-
 _AUDIO_DIR = Path(__file__).parent / "assets" / "audio"
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Tipos de superfície
-# ────────────────────────────────────────────────────────────────────────────
-
 class Surface(Enum):
-    FLOOR = auto()   # piso da bandeja
-    WALL  = auto()   # parede lateral
-    DICE  = auto()   # dado contra dado
+    FLOOR = auto()   
+    WALL  = auto()   
+    DICE  = auto()   
 
-
-# ────────────────────────────────────────────────────────────────────────────
-# Evento de colisão  (produzido por PhysicsWorld.poll_collision_events)
-# ────────────────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
 class CollisionEvent:
-    """
-    Representa uma nova colisão detectada pelo motor de física.
-
-    Campos
-    ──────
-    body_a  : body ID do primeiro objeto (sempre um dado)
-    body_b  : body ID do segundo objeto (dado, piso ou parede)
-    surface : tipo de superfície colidida
-    impulse : magnitude do impulso normal (N·s) — proxy de intensidade
-    """
+    
     body_a:  int
     body_b:  int
     surface: Surface
     impulse: float
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# WavBuffer — PCM float32 normalizado
-# ────────────────────────────────────────────────────────────────────────────
-
 @dataclass
 class WavBuffer:
-    """
-    PCM decodificado de um WAV, armazenado como float32 em [-1.0, 1.0].    
-
-    data        : shape (n_samples,) para mono, (n_samples, 2) para estéreo
-    sample_rate : taxa original do arquivo (usada para resampling de pitch)
-    n_channels  : 1 ou 2
-    """
+    
     data:        np.ndarray   # float32
     sample_rate: int
     n_channels:  int
 
     @classmethod
     def load(cls, path: Path) -> Optional["WavBuffer"]:
-        """
-        Carrega WAV e converte para float32.
-        Suporta 8, 16, 24 e 32-bit PCM.
-        Retorna None se o arquivo não existir ou for inválido.
-        """
+        
         try:
             with wave.open(str(path), "rb") as wf:
                 n_channels   = wf.getnchannels()

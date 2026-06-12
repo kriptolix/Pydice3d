@@ -1,12 +1,5 @@
 """
-spawner.py – Sistema de Spawn de Dados (PyBullet)
-
-Responsabilidade: criar e lançar um conjunto de dados com:
-  - Posições iniciais agrupadas no fundo da bandeja (simulando a mão do jogador)
-  - Arremesso direcional em leque para dentro da bandeja (−Z)
-  - Separação mínima garantida ao nascer (evita explosões de contato)
-  - Velocidades e torques iniciais variados (movimento natural)
-  - Seed opcional para reprodutibilidade
+spawner.py – Data Spawning System (PyBullet)
 """
 
 from __future__ import annotations
@@ -16,67 +9,37 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-import pybullet as p
+import pybullet as pb
 
 from pydice3d.dice import Dice
 from pydice3d.dice_state import DiceState, DiceStatus
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Parâmetros de spawn
-# ────────────────────────────────────────────────────────────────────────────
-
 @dataclass
 class SpawnConfig:
     """
-    Configuração completa de um lançamento de dados.
-
-    Parâmetros de posição
-    ─────────────────────
-    spawn_height      : altura Y de nascimento dos dados
-    spawn_cluster_xz  : ponto (X, Z) central do grupo ao nascer.
-                        (0, 3.5) = fundo da bandeja → arremesso para dentro.
-    cluster_radius    : raio máximo do grupo ao nascer
-    min_separation    : distância mínima entre centros ao nascer
-
-    Parâmetros de arremesso
-    ────────────────────────
-    throw_azimuth_deg : direção central do arremesso no plano XZ (graus).
-                        270° = −Z = para dentro da bandeja (padrão).
-    throw_spread_deg  : abertura do leque em torno do azimute central (graus).
-
-    Parâmetros de velocidade (m/s — SI do PyBullet)
-    ─────────────────────────────────────────────────
-    speed_min/max : faixa de velocidade horizontal de lançamento
-    vy_max        : componente vertical máxima. Limitada para evitar que
-                    dados escalem as paredes após ricochete no chão.
-                    (substitui elev_min/elev_max da versão anterior)
-    torque_max    : magnitude máxima do torque inicial (rad/s)
+    Complete setup of a data launch.    
     """
     spawn_height:      float = 1.8
-    spawn_cluster_xz:  tuple = (0.0, 3.5)   # fundo da bandeja — preserva efeito de arremesso
-    cluster_radius:    float = 4.0           # levemente maior para facilitar separação
+    spawn_cluster_xz:  tuple = (0.0, 3.5)
+    cluster_radius:    float = 4.0
     min_separation:    float = 2.2
 
-    throw_azimuth_deg: float = 270.0         # −Z = para dentro
+    throw_azimuth_deg: float = 270.0         # −Z = inside
     throw_spread_deg:  float = 30.0
 
     speed_min: float = 3.5   # m/s
-    speed_max: float = 4.5   # m/s  ← reduzido de 7.0
-    vy_max:    float = 1.0   # m/s  ← substitui elev_min/max; limita ricochete vertical
+    speed_max: float = 4.5   # m/s
+    vy_max:    float = 1.0   # m/s
 
     torque_max: float = 7.0  # rad/s
 
     seed:         Optional[int] = None
-    max_attempts: int           = 60
+    max_attempts: int = 60
 
     def make_rng(self) -> np.random.Generator:
         return np.random.default_rng(self.seed)
 
-
-# ────────────────────────────────────────────────────────────────────────────
-# Resultado do spawn
-# ────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class SpawnResult:
@@ -84,10 +47,6 @@ class SpawnResult:
     states:    list[DiceState]
     seed_used: Optional[int]
 
-
-# ────────────────────────────────────────────────────────────────────────────
-# Posicionamento com separação mínima (lógica original preservada)
-# ────────────────────────────────────────────────────────────────────────────
 
 def _place_positions(
     n: int,
@@ -115,7 +74,8 @@ def _place_positions(
                 break
 
         if not placed:
-            best = _least_crowded_in_disk(positions, cx, cz, cluster_radius, rng)
+            best = _least_crowded_in_disk(
+                positions, cx, cz, cluster_radius, rng)
             positions.append(best)
 
     positions = _push_apart(positions, min_sep, cx, cz, cluster_radius * 1.5)
@@ -129,7 +89,7 @@ def _least_crowded_in_disk(
     rng: np.random.Generator,
     samples: int = 40,
 ) -> np.ndarray:
-    best_pos  = np.array([cx, cz])
+    best_pos = np.array([cx, cz])
     best_dist = -1.0
     for _ in range(samples):
         while True:
@@ -138,10 +98,11 @@ def _least_crowded_in_disk(
             if dx*dx + dz*dz <= radius**2:
                 break
         c = np.array([cx + dx, cz + dz])
-        min_d = min((np.linalg.norm(c - p_) for p_ in existing), default=float('inf'))
+        min_d = min((np.linalg.norm(c - p_)
+                    for p_ in existing), default=float('inf'))
         if min_d > best_dist:
             best_dist = min_d
-            best_pos  = c
+            best_pos = c
     return best_pos
 
 
@@ -152,21 +113,21 @@ def _push_apart(
     max_radius: float,
     iterations: int = 8,
 ) -> list[np.ndarray]:
-    pos    = [p_.copy() for p_ in positions]
+    pos = [p_.copy() for p_ in positions]
     center = np.array([cx, cz])
-    n      = len(pos)
+    n = len(pos)
     for _ in range(iterations):
         moved = False
         for i in range(n):
             for j in range(i + 1, n):
                 delta = pos[i] - pos[j]
-                dist  = float(np.linalg.norm(delta))
+                dist = float(np.linalg.norm(delta))
                 if dist < min_sep and dist > 1e-6:
                     direction = delta / dist
-                    push      = direction * ((min_sep - dist) * 0.5 + 0.01)
-                    pos[i]   += push
-                    pos[j]   -= push
-                    moved     = True
+                    push = direction * ((min_sep - dist) * 0.5 + 0.01)
+                    pos[i] += push
+                    pos[j] -= push
+                    moved = True
             from_center = pos[i] - center
             d = float(np.linalg.norm(from_center))
             if d > max_radius:
@@ -176,25 +137,18 @@ def _push_apart(
     return pos
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Lançamento via PyBullet resetBaseVelocity
-# ────────────────────────────────────────────────────────────────────────────
-
 def _apply_launch(
     state: DiceState,
     cfg:   SpawnConfig,
     rng:   np.random.Generator,
 ) -> None:
     """
-    Define velocidade linear e angular iniciais via resetBaseVelocity.
-
-    A velocidade horizontal (XZ) usa azimute + espalhamento como antes.
-    A componente vertical é separada e limitada por vy_max, evitando
-    que dados ganhem altura excessiva e escapem pela borda superior.
+    Set the initial linear and angular velocities via resetBaseVelocity.
     """
     half_spread = math.radians(cfg.throw_spread_deg) / 2.0
-    azimuth     = math.radians(cfg.throw_azimuth_deg) + rng.uniform(-half_spread, half_spread)
-    speed_h     = rng.uniform(cfg.speed_min, cfg.speed_max)
+    azimuth = math.radians(cfg.throw_azimuth_deg) + \
+        rng.uniform(-half_spread, half_spread)
+    speed_h = rng.uniform(cfg.speed_min, cfg.speed_max)
 
     vx = speed_h * math.cos(azimuth)
     vz = speed_h * math.sin(azimuth)
@@ -202,7 +156,7 @@ def _apply_launch(
 
     torque = rng.uniform(-cfg.torque_max, cfg.torque_max, size=3)
 
-    p.resetBaseVelocity(
+    pb.resetBaseVelocity(
         state.dice.body_id,
         linearVelocity=(vx, vy, vz),
         angularVelocity=torque.tolist(),
@@ -210,36 +164,22 @@ def _apply_launch(
     state.status = DiceStatus.ROLLING
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# API pública
-# ────────────────────────────────────────────────────────────────────────────
-
 def spawn_dice(
     spec:    dict[str, int],
     physics,
     cfg:     Optional[SpawnConfig] = None,
 ) -> SpawnResult:
     """
-    Cria e lança um conjunto de dados agrupados no fundo da bandeja.
+    Creates and launches a grouped set of data from the bottom of the tray. 
 
-    Regra especial: cada d100 no spec adiciona automaticamente 1 d10 de
-    unidades pareado. O d10 parceiro é marcado com o atributo
-    ``dice.d100_partner = True`` para que a UI/app possa identificá-lo e
-    combinar os resultados (dezenas do d100 + unidades do d10).
-
-    Preserva o efeito visual original de "dados lançados da borda":
-      - Nasce em spawn_cluster_xz=(0, 3.5) — fundo da bandeja (+Z)
-      - Arremessados em azimute 270° (−Z) = para dentro
-      - Separação mínima garantida via _place_positions + _push_apart
-
-    A posição calculada é passada diretamente ao PyBullet via
-    pb.resetBasePositionAndOrientation, contornando o spawn fixo
-    de physics.add_dice e eliminando interpenetrações.
+    Special rule: each d100 in the spec automatically adds 1 d10 of 
+    paired units. The d10 partner is marked with the attribute 
+    ``dice.d100_partner = True`` so that the UI/app can identify it and 
+    combine the results (tens of d100 + units of d10).   
     """
     if cfg is None:
         cfg = SpawnConfig()
 
-    # Expande o spec: cada d100 exige 1 d10 de unidades adicional
     n_d100 = spec.get("d100", 0)
     expanded_spec: dict[str, int] = {}
     for dtype, count in spec.items():
@@ -247,7 +187,7 @@ def spawn_dice(
     if n_d100 > 0:
         expanded_spec["d10"] = expanded_spec.get("d10", 0) + n_d100
 
-    rng     = cfg.make_rng()
+    rng = cfg.make_rng()
     n_total = sum(expanded_spec.values())
 
     positions_xz = _place_positions(
@@ -260,13 +200,13 @@ def spawn_dice(
     )
 
     dice_list: list[Dice] = []
-    # Rastreia quantos d10 "extras" (parceiros de d100) ainda faltam criar
+    # Tracks how many "extra" d10s (d100 partners) are still missing.
     d10_partners_remaining = n_d100
 
     i = 0
     for dtype, count in expanded_spec.items():
         for k in range(count):
-            xz  = positions_xz[i]
+            xz = positions_xz[i]
             pos = (float(xz[0]), cfg.spawn_height, float(xz[1]))
             dice = Dice.create(
                 dice_type=dtype,
@@ -274,11 +214,9 @@ def spawn_dice(
                 physics=physics,
                 name=f"{dtype}_{k+1}",
             )
-            # Marca os d10 parceiros de d100 (os últimos d10_partners_remaining
-            # d10 criados são os parceiros, pois foram adicionados ao final)
+
             if dtype == "d10" and d10_partners_remaining > 0:
-                # Verifica se este d10 é um dos parceiros adicionados
-                # Os parceiros são os últimos `n_d100` d10 criados neste dtype
+
                 original_d10 = spec.get("d10", 0)
                 if k >= original_d10:
                     dice.d100_partner = True
@@ -302,54 +240,3 @@ def spawn_dice(
         states=states,
         seed_used=cfg.seed,
     )
-
-
-# ────────────────────────────────────────────────────────────────────────────
-# create_dice_set — posicionamento estático em linha (sem física de lançamento)
-# ────────────────────────────────────────────────────────────────────────────
-
-def create_dice_set(
-    spec:    dict[str, int],
-    physics,
-    origin:  tuple = (0.0, 3.0, 0.0),
-    spacing: float = 2.5,
-    scale:   float = 1.0,
-) -> list[Dice]:
-    """
-    Cria um conjunto de dados distribuídos em linha, sem aplicar velocidades.
-
-    Útil para testes, visualização estática ou posicionamento manual.
-    Para uma rolagem com física completa, use :func:`spawn_dice` em vez disso.
-
-    Parâmetros
-    ----------
-    spec    : ``{"d6": 2, "d20": 1}`` — tipo → quantidade
-    physics : instância de PhysicsWorld
-    origin  : ponto inicial (x, y, z) da linha
-    spacing : distância entre centros dos dados
-    scale   : fator de escala visual
-
-    Retorna
-    -------
-    Lista de :class:`Dice` registrados no PhysicsWorld, prontos para render.
-
-    Exemplo
-    -------
-    >>> dice_set = create_dice_set({"d6": 2, "d20": 1}, physics)
-    """
-    dice_list: list[Dice] = []
-    ox, oy, oz = origin
-
-    for dtype, count in spec.items():
-        for i in range(count):
-            x = ox + len(dice_list) * spacing
-            dice = Dice.create(
-                dice_type=dtype,
-                position=(x, oy, oz),
-                physics=physics,
-                scale=scale,
-                name=f"{dtype}_{i + 1}",
-            )
-            dice_list.append(dice)
-
-    return dice_list
