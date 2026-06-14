@@ -39,16 +39,22 @@ def glyph_d100(tens: int) -> int:
 
 
 def build_face_glyphs(dice_type: str, face_values: list[int]) -> list[int]:
+
     if dice_type == "df":
         return list(FUDGE_GLYPHS)
+
     glyphs = []
+
     for v in face_values:
         if dice_type == "d100":
             glyphs.append(glyph_d100(v))
+
         elif dice_type == "d10":
             glyphs.append(0 if int(v) == 10 else int(v))
+
         else:
             glyphs.append(int(v) if 0 <= int(v) <= 20 else GLYPH_NONE)
+
     return glyphs
 
 
@@ -84,8 +90,10 @@ def _face_uvs(vertices: np.ndarray, face: list[int],
     if use_long_axis:
 
         ref = np.array([1.0, 0.0, 0.0])
+
         if abs(np.dot(ref, n)) > 0.9:
             ref = np.array([0.0, 1.0, 0.0])
+
         e1 = ref - np.dot(ref, n) * n
         e1 = e1 / np.linalg.norm(e1)
         e2 = np.cross(n, e1)
@@ -104,12 +112,15 @@ def _face_uvs(vertices: np.ndarray, face: list[int],
         world_up = np.array([0.0, 1.0, 0.0])
         u_axis = world_up - np.dot(world_up, n) * n
         u_len = np.linalg.norm(u_axis)
+
         if u_len < 0.1:
             world_up = np.array([0.0, 0.0, 1.0])
             u_axis = world_up - np.dot(world_up, n) * n
             u_len = np.linalg.norm(u_axis)
+
         if u_len < 1e-9:
             u_axis = np.array([1.0, 0.0, 0.0])
+
         else:
             u_axis = u_axis / u_len
 
@@ -151,12 +162,14 @@ def _d4_subtri_data(vertices: np.ndarray, face: list[int],
                     ) -> list[tuple[np.ndarray, np.ndarray]]:
 
     assert len(face) == 3
+
     pts = vertices[face].astype(np.float64)   # (3, 3)
     centroid = pts.mean(axis=0)                    # (3,)
     n = np.asarray(normal, dtype=np.float64)
     n = n / (np.linalg.norm(n) + 1e-15)
 
     result = []
+
     for k in range(3):
         va = pts[(k + 1) % 3]
         vb = pts[(k + 2) % 3]
@@ -167,6 +180,7 @@ def _d4_subtri_data(vertices: np.ndarray, face: list[int],
         u_axis = vb - va
         u_axis = u_axis - np.dot(u_axis, n) * n
         u_len = np.linalg.norm(u_axis)
+
         if u_len < 1e-9:
             u_axis = np.array([1.0, 0.0, 0.0])
         else:
@@ -179,6 +193,7 @@ def _d4_subtri_data(vertices: np.ndarray, face: list[int],
             v_axis = -v_axis
 
         edge_len = np.linalg.norm(vb - va)
+
         if edge_len < 1e-9:
             edge_len = 1.0
 
@@ -212,12 +227,15 @@ class DiceRenderData:
 
     @classmethod
     def from_state(cls, state: "DiceState", theme: str = "light") -> "DiceRenderData":
-        mesh = state.dice.mesh
+
         dice_type = state.dice.dice_type
+
         if dice_type == "d4":
             return cls._from_state_d4(state, theme)
+
         uv_scale = GLYPH_UV_SCALE.get(dice_type, _DEFAULT_UV_SCALE)
         use_long_axis = dice_type in _USE_LONG_AXIS
+
         return cls._from_state_generic(state, uv_scale, use_long_axis, theme)
 
     @classmethod
@@ -225,26 +243,35 @@ class DiceRenderData:
                             uv_scale: float,
                             use_long_axis: bool,
                             theme: str = "light") -> "DiceRenderData":
+
         mesh = state.dice.mesh
         dice_type = state.dice.dice_type
 
         tris: list[tuple[int, int, int]] = mesh.triangulated_faces()
 
         face_of_tri: list[int] = []
+
         for fi, face in enumerate(mesh.faces):
             n_tris = len(list(face)) - 2
             face_of_tri.extend([fi] * n_tris)
 
         face_vert_uv: list[np.ndarray] = []
+
         for fi, face in enumerate(mesh.faces):
             uvs = _face_uvs(mesh.vertices, list(face), mesh.normals[fi],
                             uv_scale, use_long_axis)
             face_vert_uv.append(uvs)
 
         face_vert_local: list[dict[int, int]] = []
+
         for face in mesh.faces:
             face_list = list(face)
-            face_vert_local.append({v: i for i, v in enumerate(face_list)})
+            vertex_to_local_index = {}
+
+            for index, vertex in enumerate(face_list):
+                vertex_to_local_index[vertex] = index
+
+            face_vert_local.append(vertex_to_local_index)
 
         n_tris = len(tris)
         vb = np.zeros((n_tris * 3, 9), dtype=np.float32)
@@ -254,6 +281,7 @@ class DiceRenderData:
             fi = face_of_tri[ti]
             normal = mesh.normals[fi].astype(np.float32)
             local = face_vert_local[fi]
+
             for k, vi in enumerate((i0, i1, i2)):
                 row = ti * 3 + k
                 vb[row, :3] = mesh.vertices[vi].astype(np.float32)
@@ -264,6 +292,7 @@ class DiceRenderData:
 
         face_glyphs = build_face_glyphs(dice_type, list(mesh.face_values))
         glyph_color = _choose_glyph_color(dice_type, theme)
+
         return cls(vertex_buffer=vb, index_buffer=ib, n_indices=len(ib),
                    face_glyphs=face_glyphs, glyph_color=glyph_color)
 
@@ -279,20 +308,28 @@ class DiceRenderData:
         # n_faces = len(mesh.faces)
         vert_to_opposite_face: dict[int, int] = {}
         all_verts = set(range(mesh.num_vertices))
+
         for fi, face in enumerate(mesh.faces):
             face_set = set(face)
             missing = all_verts - face_set
+
             for v in missing:
                 vert_to_opposite_face[v] = fi
 
         expanded_glyphs: list[int] = [GLYPH_NONE] * MAX_FACES
+
         for fi, face in enumerate(mesh.faces):
             for k in range(3):
                 global_vert = face[k]
                 opp_fi = vert_to_opposite_face.get(global_vert, fi)
-                glyph = base_glyphs[opp_fi] if opp_fi < len(
-                    base_glyphs) else GLYPH_NONE
+
+                if opp_fi < len(base_glyphs):
+                    glyph = base_glyphs[opp_fi]
+                else:
+                    glyph = GLYPH_NONE
+
                 slot = fi * 3 + k
+
                 if slot < MAX_FACES:
                     expanded_glyphs[slot] = glyph
 
@@ -300,6 +337,7 @@ class DiceRenderData:
         ib = np.arange(36, dtype=np.uint32)
 
         row = 0
+
         for fi, face in enumerate(mesh.faces):
             face_list = list(face)
             normal_f32 = mesh.normals[fi].astype(np.float32)
@@ -308,6 +346,7 @@ class DiceRenderData:
 
             for k, (sub_pos, sub_uvs) in enumerate(subtris):
                 face_slot = float(fi * 3 + k)
+
                 for j in range(3):
                     vb[row, :3] = sub_pos[j]
                     vb[row, 3:6] = normal_f32
@@ -331,7 +370,13 @@ class RenderScene:
 
     @classmethod
     def from_states(cls, states: list["DiceState"], theme: str = "light") -> "RenderScene":
-        return cls([DiceRenderData.from_state(s, theme) for s in states])
+        render_data = []
+
+        for state in states:
+            data = DiceRenderData.from_state(state, theme)
+            render_data.append(data)
+
+        return cls(render_data)
 
     def update(self, states: list["DiceState"], alpha: float = 1.0) -> None:
         for rd, state in zip(self.dice_renders, states):

@@ -20,12 +20,14 @@ if TYPE_CHECKING:
 def _top_face_index_standard(state: "DiceState") -> int:
     R = _quat_to_matrix(state.orientation_quat)
     normals_world = state.dice.mesh.normals @ R.T
+    
     return int(np.argmax(normals_world[:, 1]))
 
 
 def _top_face_index_d4(state: "DiceState") -> int:
     R = _quat_to_matrix(state.orientation_quat)
     normals_world = state.dice.mesh.normals @ R.T
+
     return int(np.argmin(normals_world[:, 1]))
 
 
@@ -35,6 +37,7 @@ def read_face_value(state: "DiceState") -> int:
         fi = _top_face_index_d4(state)
     else:
         fi = _top_face_index_standard(state)
+
     return int(state.dice.mesh.face_values[fi])
 
 
@@ -77,8 +80,10 @@ class RollResult:
 
         for state in other_states:
             dtype = state.dice.dice_type
+
             if dtype not in values_by_type:
                 values_by_type[dtype] = []
+
             if state.is_resting:
                 value = read_face_value(state)
                 values_by_type[dtype].append(value)
@@ -88,19 +93,23 @@ class RollResult:
         if d100_states:
             if "d100" not in values_by_type:
                 values_by_type["d100"] = []
+
             for idx, d100_state in enumerate(d100_states):
                 partner = partner_states[idx] if idx < len(
                     partner_states) else None
+                
                 if d100_state.is_resting and partner is not None and partner.is_resting:
                     units = read_face_value(partner)
 
                     if units == 10:
                         units = 0
+
                     tens = read_face_value(d100_state)
                     combined = tens + units
 
                     if combined == 0:
                         combined = 100
+
                     values_by_type["d100"].append(combined)
                     total += combined
                     dice_count += 1
@@ -115,7 +124,15 @@ class RollResult:
         )
 
     def as_dict(self) -> dict[str, list[int]]:
-        return {k: list(v) for k, v in self.values_by_type.items() if v}
+        result = {}
+
+        for k, v in self.values_by_type.items():
+            if not v:
+                continue
+
+            result[k] = list(v)
+
+        return result
 
     def values_for(self, dice_type: str) -> list[int]:
         return list(self.values_by_type.get(dice_type, []))
@@ -159,8 +176,10 @@ class RollMonitor:
         if all(s.is_resting for s in self._states):
             self._result = RollResult.from_states(self._states)
             self._completed = True
+
             if self._on_complete is not None:
                 self._on_complete(self._result)
+
             return True
 
         return False
@@ -178,7 +197,13 @@ class RollMonitor:
 
     @property
     def resting_count(self) -> int:
-        return sum(1 for s in self._states if s.is_resting)
+        resting_count = 0
+
+        for state in self._states:
+            if state.is_resting:
+                resting_count += 1
+
+        return resting_count
 
     @property
     def total_count(self) -> int:
@@ -189,12 +214,14 @@ class RollMonitor:
         """Fraction of data set [0.0, 1.0]."""
         if not self._states:
             return 1.0
+        
         return self.resting_count / self.total_count
 
     def reset(self, states: Optional[list["DiceState"]] = None) -> None:
 
         if states is not None:
             self._states = states
+
         self._completed = False
         self._result = None
 

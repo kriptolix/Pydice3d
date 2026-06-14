@@ -56,18 +56,23 @@ def _place_positions(
     rng: np.random.Generator,
     max_attempts: int,
 ) -> list[np.ndarray]:
+
     cx, cz = center_xz
     positions: list[np.ndarray] = []
 
     for _ in range(n):
         placed = False
+
         for _ in range(max_attempts):
             while True:
                 dx = rng.uniform(-cluster_radius, cluster_radius)
                 dz = rng.uniform(-cluster_radius, cluster_radius)
+
                 if dx*dx + dz*dz <= cluster_radius**2:
                     break
+
             candidate = np.array([cx + dx, cz + dz])
+
             if all(np.linalg.norm(candidate - pos) >= min_sep for pos in positions):
                 positions.append(candidate)
                 placed = True
@@ -79,6 +84,7 @@ def _place_positions(
             positions.append(best)
 
     positions = _push_apart(positions, min_sep, cx, cz, cluster_radius * 1.5)
+
     return positions
 
 
@@ -89,20 +95,31 @@ def _least_crowded_in_disk(
     rng: np.random.Generator,
     samples: int = 40,
 ) -> np.ndarray:
+
     best_pos = np.array([cx, cz])
     best_dist = -1.0
+
     for _ in range(samples):
         while True:
             dx = rng.uniform(-radius, radius)
             dz = rng.uniform(-radius, radius)
+
             if dx*dx + dz*dz <= radius**2:
                 break
+
         c = np.array([cx + dx, cz + dz])
-        min_d = min((np.linalg.norm(c - p_)
-                    for p_ in existing), default=float('inf'))
+        min_d = float("inf")
+
+        for point in existing:
+            distance = np.linalg.norm(c - point)
+
+            if distance < min_d:
+                min_d = distance
+
         if min_d > best_dist:
             best_dist = min_d
             best_pos = c
+
     return best_pos
 
 
@@ -113,15 +130,19 @@ def _push_apart(
     max_radius: float,
     iterations: int = 8,
 ) -> list[np.ndarray]:
+
     pos = [p_.copy() for p_ in positions]
     center = np.array([cx, cz])
     n = len(pos)
+
     for _ in range(iterations):
         moved = False
+
         for i in range(n):
             for j in range(i + 1, n):
                 delta = pos[i] - pos[j]
                 dist = float(np.linalg.norm(delta))
+
                 if dist < min_sep and dist > 1e-6:
                     direction = delta / dist
                     push = direction * ((min_sep - dist) * 0.5 + 0.01)
@@ -130,10 +151,13 @@ def _push_apart(
                     moved = True
             from_center = pos[i] - center
             d = float(np.linalg.norm(from_center))
+
             if d > max_radius:
                 pos[i] = center + from_center / d * max_radius
+
         if not moved:
             break
+
     return pos
 
 
@@ -152,7 +176,7 @@ def _apply_launch(
 
     vx = speed_h * math.cos(azimuth)
     vz = speed_h * math.sin(azimuth)
-    vy = float(rng.uniform(0.2, cfg.vy_max))   # leve arco, sem exagero
+    vy = float(rng.uniform(0.2, cfg.vy_max))
 
     torque = rng.uniform(-cfg.torque_max, cfg.torque_max, size=3)
 
@@ -182,8 +206,10 @@ def spawn_dice(
 
     n_d100 = spec.get("d100", 0)
     expanded_spec: dict[str, int] = {}
+
     for dtype, count in spec.items():
         expanded_spec[dtype] = count
+
     if n_d100 > 0:
         expanded_spec["d10"] = expanded_spec.get("d10", 0) + n_d100
 
@@ -204,6 +230,7 @@ def spawn_dice(
     d10_partners_remaining = n_d100
 
     i = 0
+    
     for dtype, count in expanded_spec.items():
         for k in range(count):
             xz = positions_xz[i]
@@ -230,6 +257,7 @@ def spawn_dice(
             i += 1
 
     states: list[DiceState] = []
+
     for dice in dice_list:
         state = DiceState.create(dice)
         _apply_launch(state, cfg, rng)

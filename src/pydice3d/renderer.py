@@ -54,6 +54,7 @@ class DiceGpuObject:
     """
 
     def __init__(self, rd: DiceRenderData, dice_type: str, theme: str = "light") -> None:
+        
         self.dice_type = dice_type
         self.n_indices = rd.n_indices
         self.color = DICE_THEMES[theme].dice_color if theme in DICE_THEMES else DEFAULT_DICE_COLOR
@@ -121,6 +122,7 @@ class GroundPlane:
     HALF_SIZE = 50.0
 
     def __init__(self) -> None:
+
         s = self.HALF_SIZE
         y = 0.0
         verts = np.array([
@@ -158,6 +160,7 @@ def _load_atlas_texture(npy_path: str) -> int:
             f"atlas.npy must have shape (H, W, 4) uint8, "
             f"received: {img_data.shape} {img_data.dtype}"
         )
+    
     img_data = np.ascontiguousarray(img_data, dtype=np.uint8)
     h, w = img_data.shape[:2]
 
@@ -179,6 +182,7 @@ def _load_atlas_texture(npy_path: str) -> int:
         img_data.tobytes(),
     )
     GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+
     return tex_id
 
 
@@ -193,7 +197,13 @@ class LightingParams:
     def normalized_dir(self) -> np.ndarray:
         d = np.asarray(self.light_dir, dtype=float)
         n = np.linalg.norm(d)
-        return (d / n).astype(np.float32) if n > 1e-8 else d
+
+        result = d
+
+        if n > 1e-8:
+            result = (d / n).astype(np.float32)
+
+        return result
 
 
 class Renderer:
@@ -217,6 +227,7 @@ class Renderer:
         self.ground_prog = build_ground_program()
 
         self.dice_gpu: list[DiceGpuObject] = []
+
         for rd, dtype in zip(scene.dice_renders, dice_types):
             self.dice_gpu.append(DiceGpuObject(rd, dtype, self._theme))
 
@@ -251,6 +262,7 @@ class Renderer:
         width:    int,
         height:   int,
     ) -> None:
+        
         GL.glViewport(0, 0, width, height)
         GL.glClearColor(0.0, 0.0, 0.0, 0.0)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
@@ -267,6 +279,7 @@ class Renderer:
         VP:      np.ndarray,
         cam_pos: np.ndarray,
     ) -> None:
+        
         GL.glUseProgram(self.dice_prog)
 
         set_uniform_mat4(self.dice_prog,  "u_view_proj",   VP)
@@ -286,8 +299,10 @@ class Renderer:
         if self._glyph_uvs is not None:
             set_uniform_vec4_array(
                 self.dice_prog, "u_glyph_uvs", self._glyph_uvs)
+            
         if self._uv_plus is not None:
             set_uniform_vec4(self.dice_prog, "u_glyph_uv_plus",  self._uv_plus)
+
         if self._uv_minus is not None:
             set_uniform_vec4(
                 self.dice_prog, "u_glyph_uv_minus", self._uv_minus)
@@ -323,8 +338,10 @@ class Renderer:
         if value not in DICE_THEMES:
             raise ValueError(
                 f"Invalid theme: {value!r}. Use: {list(DICE_THEMES)}")
+        
         self._theme = value
         theme = DICE_THEMES[value]
+
         for gpu in self.dice_gpu:
             gpu.color = theme.dice_color
             gpu.glyph_color = theme.glyph_color
@@ -335,16 +352,21 @@ class Renderer:
         """Recreates GPU objects from the data without reloading the atlas."""
         for gpu in self.dice_gpu:
             gpu.delete()
+
         self.dice_gpu = []
+
         for rd, dtype in zip(scene.dice_renders, dice_types):
             self.dice_gpu.append(DiceGpuObject(rd, dtype, self._theme))
 
     def delete(self) -> None:
         for gpu in self.dice_gpu:
             gpu.delete()
+
         self.ground.delete()
+
         if self._atlas_tex:
             GL.glDeleteTextures(1, [self._atlas_tex])
+        
         self._atlas_tex = 0
         GL.glDeleteProgram(self.dice_prog)
         GL.glDeleteProgram(self.ground_prog)
